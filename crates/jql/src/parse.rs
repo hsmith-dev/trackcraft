@@ -1,7 +1,7 @@
 //! Recursive-descent parser. Precedence: `NOT` > `AND` > `OR`, as in Jira.
 
 use crate::lex::{Tok, lex};
-use crate::{Dir, Expr, JqlError, MAX_DEPTH, MAX_LIST, MAX_QUERY_LEN, Op, Operand, Query};
+use crate::{Dir, Expr, History, HistoryOp, JqlError, MAX_DEPTH, MAX_LIST, MAX_PREDICATES, MAX_QUERY_LEN, Op, Operand, Predicate, Query};
 
 /// Parses a full query. An empty query (or one with only `ORDER BY`) matches everything.
 pub fn parse(src: &str) -> Result<Query, JqlError> {
@@ -144,6 +144,9 @@ impl Parser {
 
     fn clause(&mut self) -> Result<Expr, JqlError> {
         let field = self.field_name()?;
+        if self.peek().is_some_and(|t| t.is_kw("WAS") || t.is_kw("CHANGED")) {
+            return self.history(field);
+        }
         let op = self.op()?;
         let value = match op {
             Op::In | Op::NotIn => self.list()?,
@@ -158,6 +161,90 @@ impl Parser {
             _ => {}
         }
         Ok(Expr::Clause { field, op, value })
+    }
+
+    /// `WAS [NOT] [IN] value predicates…` or `CHANGED predicates…`, after the field name.
+    fn history(&mut self, field: String) -> Result<Expr, JqlError> {
+        let op = if self.peek().is_some_and(|t| t.is_kw("CHANGED")) {
+            self.pos += 1;
+            HistoryOp::Changed
+        } else {
+            self.pos += 1; // WAS
+            let not = self.peek().is_some_and(|t| t.is_kw("NOT"));
+            if not {
+                self.pos += 1;
+            }
+            let is_in = self.peek().is_some_and(|t| t.is_kw("IN"));
+            if is_in {
+                self.pos += 1;
+            }
+            match (not, is_in) {
+                (false, false) => HistoryOp::Was,
+                (true, false) => HistoryOp::WasNot,
+                (false, true) => HistoryOp::WasIn,
+                (true, true) => HistoryOp::WasNotIn,
+            }
+        };
+        let value = match op {
+            HistoryOp::Changed => None,
+            HistoryOp::WasIn | HistoryOp::WasNotIn => Some(self.list()?),
+            HistoryOp::Was | HistoryOp::WasNot => {
+                if self.peek() == Some(&Tok::LParen) {
+                    return Err(JqlError::BadOperand { op: op.as_str(), value: "a list (use WAS IN)".into() });
+                }
+                Some(self.operand()?)
+            }
+        };
+        let mut predicates = Vec::new();
+        while let Some(kw) = self.predicate_keyword() {
+            if predicates.len() >= MAX_PREDICATES {
+                return Err(JqlError::TooManyPredicates);
+            }
+            if matches!(kw, "FROM" | "TO") && op != HistoryOp::Changed {
+                return Err(JqlError::Expected { expected: "AFTER, BEFORE, ON, DURING or BY (FROM/TO go with CHANGED)", found: self.found() });
+            }
+            self.pos += 1;
+            let p = match kw {
+                "AFTER" => Predicate::After(self.operand()?),
+                "BEFORE" => Predicate::Before(self.operand()?),
+                "ON" => Predicate::On(self.operand()?),
+                "FROM" => Predicate::From(self.operand()?),
+                "TO" => Predicate::To(self.operand()?),
+                "BY" => match self.list()? {
+                    Operand::List(users) if !users.is_empty() => Predicate::By(users),
+                    _ => return Err(JqlError::Expected { expected: "a user after BY", found: self.found() }),
+                },
+                _ => {
+                    if self.peek() != Some(&Tok::LParen) {
+                        return Err(JqlError::Expected { expected: "'(' after DURING", found: self.found() });
+                    }
+                    self.pos += 1;
+                    let a = self.operand()?;
+                    if self.peek() != Some(&Tok::Comma) {
+                        return Err(JqlError::Expected { expected: "',' between the DURING dates", found: self.found() });
+                    }
+                    self.pos += 1;
+                    let b = self.operand()?;
+                    if self.peek() != Some(&Tok::RParen) {
+                        return Err(JqlError::Expected { expected: "')'", found: self.found() });
+                    }
+                    self.pos += 1;
+                    Predicate::During(a, b)
+                }
+            };
+            for o in predicate_operands(&p) {
+                if matches!(o, Operand::List(_)) {
+                    return Err(JqlError::BadOperand { op: op.as_str(), value: "a list here".into() });
+                }
+            }
+            predicates.push(p);
+        }
+        Ok(Expr::History(History { field, op, value, predicates }))
+    }
+
+    fn predicate_keyword(&self) -> Option<&'static str> {
+        let t = self.peek()?;
+        ["AFTER", "BEFORE", "ON", "DURING", "BY", "FROM", "TO"].into_iter().find(|kw| t.is_kw(kw))
     }
 
     fn list(&mut self) -> Result<Operand, JqlError> {
@@ -229,6 +316,14 @@ impl Parser {
     }
 }
 
+fn predicate_operands(p: &Predicate) -> Vec<&Operand> {
+    match p {
+        Predicate::After(o) | Predicate::Before(o) | Predicate::On(o) | Predicate::From(o) | Predicate::To(o) => vec![o],
+        Predicate::During(a, b) => vec![a, b],
+        Predicate::By(users) => users.iter().collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,5 +350,64 @@ mod tests {
         assert_eq!(parse(&"(".repeat(500)), Err(JqlError::TooDeep));
         assert_eq!(parse(&"NOT ".repeat(500)), Err(JqlError::TooDeep));
         assert_eq!(parse(&"a".repeat(MAX_QUERY_LEN + 1)), Err(JqlError::TooLong));
+    }
+
+    fn history(q: &str) -> History {
+        match parse(q).unwrap().filter {
+            Some(Expr::History(h)) => h,
+            other => panic!("{q}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_history_clauses() {
+        let h = history(r#"status WAS "In Progress""#);
+        assert_eq!((h.op, h.value), (HistoryOp::Was, Some(Operand::Value("In Progress".into()))));
+        assert_eq!(history("status was not Done").op, HistoryOp::WasNot);
+        assert_eq!(history("assignee WAS EMPTY").value, Some(Operand::Empty));
+        let h = history(r#"status WAS IN ("To Do", Done) BY (ann, currentUser()) AFTER -7d"#);
+        assert_eq!(h.op, HistoryOp::WasIn);
+        assert_eq!(h.predicates.len(), 2);
+        assert!(matches!(&h.predicates[0], Predicate::By(u) if u.len() == 2));
+        assert_eq!(history("status WAS NOT IN (Done)").op, HistoryOp::WasNotIn);
+        let h = history(r#"status CHANGED FROM "To Do" TO "In Progress" BY ann DURING (2026-10-01, "2026-10-31") ON now() BEFORE endOfDay()"#);
+        assert_eq!((h.op, h.value, h.predicates.len()), (HistoryOp::Changed, None, 6));
+        assert_eq!(history("priority changed").predicates, vec![]);
+        // History clauses combine with everything else.
+        assert!(matches!(parse("project = A AND NOT status CHANGED AFTER -1d ORDER BY key").unwrap().filter, Some(Expr::And(..))));
+        // A value that merely looks like a keyword stays a value.
+        assert!(matches!(parse("summary = was").unwrap().filter, Some(Expr::Clause { .. })));
+    }
+
+    #[test]
+    fn rejects_bad_history_clauses() {
+        for bad in [
+            "status WAS",
+            "status WAS (a, b)",
+            "status WAS IN",
+            "status WAS IN (a,",
+            "status WAS a FROM b",
+            "status WAS a TO b",
+            "status CHANGED FROM",
+            "status CHANGED FROM (a, b)",
+            "status CHANGED BY",
+            "status CHANGED BY ()",
+            "status CHANGED DURING",
+            "status CHANGED DURING (a)",
+            "status CHANGED DURING (a, b",
+            "status CHANGED AFTER",
+            "status CHANGED x",
+            "status WAS NOT NOT a",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        let many = format!("status CHANGED {}", "AFTER -1d ".repeat(MAX_PREDICATES + 1));
+        assert_eq!(parse(&many), Err(JqlError::TooManyPredicates));
+        let huge = format!("status WAS IN ({})", vec!["x"; MAX_LIST + 1].join(","));
+        assert_eq!(parse(&huge), Err(JqlError::ListTooLong));
+        let huge_by = format!("status CHANGED BY ({})", vec!["u"; MAX_LIST + 1].join(","));
+        assert_eq!(parse(&huge_by), Err(JqlError::ListTooLong));
+        let deep = format!("{}status WAS a{}", "(".repeat(500), ")".repeat(500));
+        assert_eq!(parse(&deep), Err(JqlError::TooDeep));
     }
 }

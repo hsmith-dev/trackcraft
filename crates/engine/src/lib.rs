@@ -132,7 +132,12 @@ impl Session {
             return Err(format!("{} is unavailable: {why}", spec.id));
         }
         let before = spec.mutates.then(|| self.ws.clone());
+        // Every history entry one command records shares one change id.
+        if spec.mutates {
+            self.ws.begin_batch();
+        }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (spec.run)(self, params)));
+        self.ws.end_batch();
         let result = match result {
             Ok(r) => r,
             Err(_) => Err(format!("internal error in {}: the workspace was restored (please report this)", spec.id)),

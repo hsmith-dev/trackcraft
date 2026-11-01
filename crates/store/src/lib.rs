@@ -55,7 +55,9 @@ pub fn from_str(s: &str) -> Result<Workspace, StoreError> {
     if schema == 0 {
         return Err(StoreError::Format("missing schema version".into()));
     }
-    // Migrations from older schemas go here, one step per version.
+    // Migrations from older schemas go here, one step per version. Additive fields don't bump the
+    // schema: they are `#[serde(default)]` in the model (e.g. `Issue::history`, added in schema 1
+    // — files written before it load with empty histories, and older builds ignore it).
     let env: Envelope<Workspace> = serde_json::from_value(head).map_err(|e| StoreError::Format(e.to_string()))?;
     let mut ws = env.workspace;
     ws.schema_version = SCHEMA_VERSION;
@@ -98,6 +100,25 @@ mod tests {
         assert!(from_str("not json").is_err());
         assert!(matches!(from_str(r#"{"format":"trackcraft","schema":999,"workspace":{}}"#), Err(StoreError::Newer { found: 999 })));
         assert!(from_str(r#"{"format":"trackcraft","schema":1,"workspace":{"name":5}}"#).is_err());
+    }
+
+    #[test]
+    fn issue_history_round_trips_and_is_optional() {
+        let mut ws = Workspace::new("T");
+        ws.add_user("ann", "Ann").unwrap();
+        ws.create_project("A", "A", trackcraft_model::ProjectKind::Software, None).unwrap();
+        let now = trackcraft_model::Timestamp::from_timestamp(1_793_448_000, 0).unwrap();
+        let new = trackcraft_model::NewIssue { project: "A".into(), summary: "x".into(), ..Default::default() };
+        ws.create_issue(new, "ann", now).unwrap();
+        ws.transition("A-1", "Done", "ann", now).unwrap();
+        let s = to_string(&ws).unwrap();
+        assert!(s.contains("\"history\""));
+        assert_eq!(from_str(&s).unwrap(), ws);
+        // A schema-1 file written before issues had a history still loads.
+        let mut v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        v["workspace"]["issues"]["A-1"].as_object_mut().unwrap().remove("history");
+        let old = from_str(&v.to_string()).unwrap();
+        assert!(old.issue("A-1").unwrap().history.is_empty());
     }
 
     #[test]

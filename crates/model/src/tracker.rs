@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 use trackcraft_core::{Id, IssueKey, ProjectKey, Timestamp};
 use trackcraft_markup::Doc;
 
-use crate::{ModelError, Result, Workspace, labels, title};
+use crate::{Batch, ModelError, Result, Workspace, clip, labels, title};
+
+/// Most change-history entries kept per issue; the oldest are dropped first.
+pub const MAX_HISTORY: usize = 10_000;
+/// Longest text preview kept in a history entry for rich-text fields (description, comments).
+pub const HISTORY_PREVIEW: usize = 100;
 
 /// Default priorities, highest first (rank 1 = highest).
 pub const PRIORITIES: [&str; 5] = ["Highest", "High", "Medium", "Low", "Lowest"];
@@ -167,6 +172,26 @@ pub struct IssueLink {
     pub target: IssueKey,
 }
 
+/// One field change in an issue's activity history.
+///
+/// Field names are the JQL names: `created`, `status`, `resolution`, `assignee`, `priority`,
+/// `summary`, `description`, `labels`, `storyPoints`, `link`, `comment`. Entries made by one
+/// command share an `id` (Jira's changelog groups them the same way). Values are display strings:
+/// user ids, status and priority names, labels space-separated. Rich text (description, comment
+/// bodies) is stored as a short plain-text preview ([`HISTORY_PREVIEW`] characters) so the history
+/// never holds full copies of large documents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Change {
+    pub id: Id,
+    pub author: String,
+    pub at: Timestamp,
+    pub field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Issue {
     pub key: IssueKey,
@@ -186,6 +211,10 @@ pub struct Issue {
     pub resolved: Option<Timestamp>,
     pub comments: Vec<Comment>,
     pub links: Vec<IssueLink>,
+    /// Activity history, oldest first, at most [`MAX_HISTORY`] entries. Older files without it
+    /// load with an empty history.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<Change>,
 }
 
 /// What `issue.create` takes.
@@ -294,60 +323,110 @@ impl Workspace {
             resolved: None,
             comments: vec![],
             links: vec![],
+            history: vec![],
         };
+        let reporter = issue.reporter.clone();
         self.issues.insert(key.clone(), issue);
+        self.record(&key, &reporter, now, vec![("created", None, None)]);
         Ok(key)
     }
 
-    pub fn set_summary(&mut self, key: &str, summary: &str, now: Timestamp) -> Result<()> {
+    /// Appends one primitive's changes to an issue's history. Entries whose value didn't change
+    /// are skipped. Inside a batch ([`Workspace::begin_batch`]) every entry shares one id.
+    fn record(&mut self, key: &IssueKey, author: &str, at: Timestamp, items: Vec<(&str, Option<String>, Option<String>)>) {
+        let items: Vec<_> = items.into_iter().filter(|(f, from, to)| matches!(*f, "created" | "comment" | "link") || from != to).collect();
+        if items.is_empty() || !self.issues.contains_key(key) {
+            return;
+        }
+        let id = match self.batch {
+            Batch::Open(Some(id)) => id,
+            Batch::Open(None) => {
+                let id = self.ids.next_id();
+                self.batch = Batch::Open(Some(id));
+                id
+            }
+            Batch::Off => self.ids.next_id(),
+        };
+        let author = clip(author.trim(), 128);
+        if let Some(i) = self.issues.get_mut(key) {
+            for (field, from, to) in items {
+                i.history.push(Change { id, author: author.clone(), at, field: field.to_string(), from, to });
+            }
+            let excess = i.history.len().saturating_sub(MAX_HISTORY);
+            if excess > 0 {
+                i.history.drain(..excess);
+            }
+        }
+    }
+
+    pub fn set_summary(&mut self, key: &str, summary: &str, author: &str, now: Timestamp) -> Result<()> {
         let s = title(summary, "the summary")?;
         let i = self.issue_mut(key)?;
-        i.summary = s;
+        let from = std::mem::replace(&mut i.summary, s.clone());
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("summary", Some(from), Some(s))]);
         Ok(())
     }
 
-    pub fn set_description(&mut self, key: &str, d: Doc, now: Timestamp) -> Result<()> {
+    /// Replaces the description. The history keeps a short plain-text preview of the old and
+    /// new text, not full copies.
+    pub fn set_description(&mut self, key: &str, d: Doc, author: &str, now: Timestamp) -> Result<()> {
+        let to = preview(&d);
         let i = self.issue_mut(key)?;
-        i.description = d;
+        let from = preview(&std::mem::replace(&mut i.description, d));
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("description", from, to)]);
         Ok(())
     }
 
-    pub fn set_priority(&mut self, key: &str, p: &str, now: Timestamp) -> Result<()> {
+    pub fn set_priority(&mut self, key: &str, p: &str, author: &str, now: Timestamp) -> Result<()> {
         let p = canonical_priority(p)?;
         let i = self.issue_mut(key)?;
-        i.priority = p;
+        let from = std::mem::replace(&mut i.priority, p.clone());
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("priority", Some(from), Some(p))]);
         Ok(())
     }
 
-    pub fn set_labels(&mut self, key: &str, l: &[String], now: Timestamp) -> Result<()> {
+    pub fn set_labels(&mut self, key: &str, l: &[String], author: &str, now: Timestamp) -> Result<()> {
         let l = labels(l)?;
+        let to = joined(&l);
         let i = self.issue_mut(key)?;
-        i.labels = l;
+        let from = joined(&std::mem::replace(&mut i.labels, l));
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("labels", from, to)]);
         Ok(())
     }
 
-    pub fn set_story_points(&mut self, key: &str, points: Option<f64>, now: Timestamp) -> Result<()> {
+    pub fn set_story_points(&mut self, key: &str, points: Option<f64>, author: &str, now: Timestamp) -> Result<()> {
         let points = check_points(points)?;
         let i = self.issue_mut(key)?;
-        i.story_points = points;
+        let from = std::mem::replace(&mut i.story_points, points).map(|p| p.to_string());
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("storyPoints", from, points.map(|p| p.to_string()))]);
         Ok(())
     }
 
-    pub fn assign(&mut self, key: &str, user: Option<&str>, now: Timestamp) -> Result<()> {
+    pub fn assign(&mut self, key: &str, user: Option<&str>, author: &str, now: Timestamp) -> Result<()> {
         let u = self.check_user(user)?;
         let i = self.issue_mut(key)?;
-        i.assignee = u;
+        let from = std::mem::replace(&mut i.assignee, u.clone());
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("assignee", from, u)]);
         Ok(())
     }
 
     /// Moves an issue to `to` through the project's workflow.
-    pub fn transition(&mut self, key: &str, to: &str, now: Timestamp) -> Result<()> {
+    ///
+    /// Records `status` and, when the issue enters or leaves a Done-category status,
+    /// `resolution` in the history.
+    pub fn transition(&mut self, key: &str, to: &str, author: &str, now: Timestamp) -> Result<()> {
         let issue = self.issue(key)?;
         let project = self.projects.get(&issue.key.project).ok_or_else(|| ModelError::NoSuchProject(issue.key.project.to_string()))?;
         let wf = &project.workflow;
@@ -356,9 +435,14 @@ impl Workspace {
             return Err(ModelError::NoTransition { from: issue.status.clone(), to: target.name });
         }
         let i = self.issue_mut(key)?;
-        i.status = target.name;
+        let from = std::mem::replace(&mut i.status, target.name.clone());
+        let was_resolved = i.resolved.is_some();
         i.resolved = if target.category == StatusCategory::Done { Some(now) } else { None };
         i.updated = now;
+        let resolution = |r: bool| r.then(|| RESOLUTION_DONE.to_string());
+        let items = vec![("status", Some(from), Some(target.name)), ("resolution", resolution(was_resolved), resolution(i.resolved.is_some()))];
+        let k = i.key.clone();
+        self.record(&k, author, now, items);
         Ok(())
     }
 
@@ -373,20 +457,25 @@ impl Workspace {
         }
         self.issue(key)?;
         let id = self.ids.next_id();
+        let to = preview(&body);
         let i = self.issue_mut(key)?;
-        i.comments.push(Comment { id, author, body, created: now, updated: now });
+        i.comments.push(Comment { id, author: author.clone(), body, created: now, updated: now });
         i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, &author, now, vec![("comment", None, to)]);
         Ok(id)
     }
 
-    pub fn delete_comment(&mut self, key: &str, id: Id) -> Result<()> {
+    pub fn delete_comment(&mut self, key: &str, id: Id, author: &str, now: Timestamp) -> Result<()> {
         let i = self.issue_mut(key)?;
-        let before = i.comments.len();
-        i.comments.retain(|c| c.id != id);
-        if i.comments.len() == before { Err(ModelError::NoSuchComment(id)) } else { Ok(()) }
+        let pos = i.comments.iter().position(|c| c.id == id).ok_or(ModelError::NoSuchComment(id))?;
+        let gone = i.comments.remove(pos);
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("comment", preview(&gone.body), None)]);
+        Ok(())
     }
 
-    pub fn link(&mut self, from: &str, kind: LinkKind, to: &str, now: Timestamp) -> Result<()> {
+    pub fn link(&mut self, from: &str, kind: LinkKind, to: &str, author: &str, now: Timestamp) -> Result<()> {
         let target = self.issue(to)?.key.clone();
         let src = self.issue(from)?.key.clone();
         if src == target {
@@ -397,8 +486,10 @@ impl Workspace {
         if i.links.contains(&link) {
             return Err(ModelError::Duplicate(format!("link {src} {} {}", kind.outward(), link.target)));
         }
+        let text = format!("This issue {} {}", kind.outward(), link.target);
         i.links.push(link);
         i.updated = now;
+        self.record(&src, author, now, vec![("link", None, Some(text))]);
         Ok(())
     }
 
@@ -418,6 +509,22 @@ impl Workspace {
         }
         Ok(gone)
     }
+}
+
+/// The resolution recorded in history when an issue enters a Done-category status.
+pub const RESOLUTION_DONE: &str = "Done";
+
+/// A short plain-text preview of rich text for history entries (`None` when empty).
+fn preview(d: &Doc) -> Option<String> {
+    let text = d.plain_text().split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return None;
+    }
+    if text.chars().count() > HISTORY_PREVIEW { Some(format!("{}…", clip(&text, HISTORY_PREVIEW))) } else { Some(text) }
+}
+
+fn joined(l: &[String]) -> Option<String> {
+    if l.is_empty() { None } else { Some(l.join(" ")) }
 }
 
 fn canonical_priority(p: &str) -> Result<String> {

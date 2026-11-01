@@ -19,8 +19,8 @@ pub use record::IssueRecord;
 pub use trackcraft_core::Timestamp;
 pub use trackcraft_markup::Doc;
 pub use tracker::{
-    Comment, Issue, IssueLink, IssueType, LinkKind, NewIssue, PRIORITIES, Project, ProjectKind, Status, StatusCategory, Transition, Workflow,
-    priority_rank,
+    Change, Comment, HISTORY_PREVIEW, Issue, IssueLink, IssueType, LinkKind, MAX_HISTORY, NewIssue, PRIORITIES, Project, ProjectKind,
+    RESOLUTION_DONE, Status, StatusCategory, Transition, Workflow, priority_rank,
 };
 pub use wiki::{NewPage, Page, PageEdit, PageVersion, Space};
 
@@ -88,6 +88,18 @@ pub struct Workspace {
     pub spaces: BTreeMap<ProjectKey, Space>,
     pub pages: BTreeMap<Id, Page>,
     pub ids: IdGen,
+    /// Transient (never saved): whether history entries are being grouped into one change.
+    #[serde(skip)]
+    batch: Batch,
+}
+
+/// History grouping state: outside a batch each primitive gets its own change id; inside one,
+/// every entry shares the id allocated for the first.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Batch {
+    #[default]
+    Off,
+    Open(Option<Id>),
 }
 
 impl Default for Workspace {
@@ -107,7 +119,19 @@ impl Workspace {
             spaces: BTreeMap::new(),
             pages: BTreeMap::new(),
             ids: IdGen::default(),
+            batch: Batch::Off,
         }
+    }
+
+    /// Starts grouping history: every change recorded until [`Workspace::end_batch`] shares one
+    /// id, so one command (an edit of several fields) reads as one activity entry. The engine
+    /// wraps each mutating command in a batch.
+    pub fn begin_batch(&mut self) {
+        self.batch = Batch::Open(None);
+    }
+
+    pub fn end_batch(&mut self) {
+        self.batch = Batch::Off;
     }
 
     pub fn add_user(&mut self, id: &str, display_name: &str) -> Result<()> {
