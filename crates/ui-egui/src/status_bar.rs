@@ -58,6 +58,8 @@ pub(crate) fn context(app: &TrackApp) -> String {
         View::Settings(tab) => format!("Settings: {}", tab.label()),           // UI-7
         View::PageDiff(_, from, to) => format!("Comparing v{from} and v{to}"), // UI-28
         View::Inbox => "Notifications".into(),                                 // M4.5
+        // UI-24
+        View::Reports(p) => format!("{p} reports"),
     };
     middle_truncate(&s, 80)
 }

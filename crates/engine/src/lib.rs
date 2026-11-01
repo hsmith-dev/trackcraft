@@ -348,6 +348,8 @@ mod tests_access;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
+mod tests_reports; // M2.5
+#[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
 mod tests_wiki; // M4.5

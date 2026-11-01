@@ -30,6 +30,8 @@ pub enum View {
     PageDiff(Id, u32, u32),
     /// The acting user's notifications (M4.5).
     Inbox,
+    /// A project's reports: burndown, velocity, cumulative flow, created vs resolved (UI-24).
+    Reports(ProjectKey),
 }
 
 /// The view a `ui.navigate` request names:
@@ -68,6 +70,8 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
             View::PageDiff(id, from, to)
         }
         "inbox" => View::Inbox, // M4.5
+        // UI-24
+        "reports" => View::Reports(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?),
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.

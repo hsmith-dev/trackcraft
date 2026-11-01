@@ -284,6 +284,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Settings(_) => None,             // UI-7
         View::PageDiff(..) => None,            // UI-28
         View::Inbox => None,                   // M4.5
+        View::Reports(_) => None,              // UI-24
     }
 }
 
