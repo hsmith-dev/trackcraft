@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **75 / 116 (64.7%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
-| Ready for real work | **~50%**: a team can run a shared server with roles and page restrictions, edit live from desktop (HTTP/HTTPS) and browser clients, get notified, import from Jira/Confluence and script it over Jira-compatible REST; missing: admin UI for permissions, email, attachments, custom fields, dashboards/reports, packaged releases | estimated |
-| Commands | 78 | measured (`trackcraft-cli commands`) |
+| Feature catalog coverage | **82 / 116 (70.7%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ready for real work | **~58%**: a team can self-host, set roles and page restrictions in the UI, plan with sprints, custom fields, components and versions, track progress in reports, edit live from desktop and browser, and script it over Jira-compatible REST; missing: signed releases (secrets), email, attachments, automation, workflow editor, saved filters | estimated |
+| Commands | 96 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -32,9 +32,17 @@ parity.
 | M3 | Wiki depth: rich editor (tables, panels, tasks, macros), comments, version diff, templates, attachments, export | |
 | M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | REST + tokens, live sync, permissions, in-app notifications, browser and HTTPS clients landed; admin UI and email open |
 | M5 | Compatibility: Jira REST v3 and Confluence REST v2 subsets, Jira/Confluence importers | REST subsets and importers landed; depth open |
-| M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
+| M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | packaging + release workflow landed; needs the app id confirmed and signing secrets |
 
 ## Progress log
+
+- **2026-11-01 · UI-37, M2.4, M2.5, M6.1** (four agents in parallel) — Permissions UI (roles,
+  project/space access, page restrictions, lock badges, disabled controls); custom fields,
+  components and versions end to end (model, commands with permission rules, JQL `cf[…]`,
+  import, REST, editors, a Fields tab in project settings, Releases view); reports (burndown,
+  velocity, cumulative flow, created vs resolved, pie) with painted, accessible charts and a home
+  dashboard; app icon, packaging for macOS/Windows/Linux/FreeBSD/web, release workflow. The web
+  build renders in headless Chrome.
 
 - **2026-11-01 · M4.3, M4.5, M4.6, M4.7** (four agents in parallel) — Permissions: workspace,
   project and space roles plus inherited page restrictions, enforced in the engine, REST and

@@ -13,8 +13,10 @@
 | 6 | History gaps: `WAS`/`CHANGED` only for status, assignee, priority; no activity tab in the UI | history + `WAS`/`CHANGED` landed 2026-10-31 (M2.1); delete history, type/parent edits, unlink, comment edit landed (M2.3) | M2 |
 | 7 | Import depth: Confluence tables and macros kept as unrendered blocks; CSV sprint states guessed; no attachments | importers landed 2026-10-31 (M5.1, `docs/import.md`) | M5 |
 | 8 | Server depth: no admin UI for roles/restrictions (commands and REST exist; `access.check` ready for the UI), no email notifications, no workspace list route (the web connect dialog asks for the name), browser-side sync untested in a real browser, the `trackcraft-server user role` CLI edits the file directly (stop the server first), metadata leaks listed in `permissions.md` | REST, sync, permissions, notifications, HTTPS landed (M4.1–M4.7) | M4 |
-| 9 | No custom fields, components, versions | most real projects use them | M2 |
+| 9 | Fields follow-ups: no field contexts/screens per issue type, no cascading selects | custom fields, components, versions landed 2026-11-01 (M2.4) | M2 |
 | 13 | Marking notifications read is an undo step | Cmd+Z after reading the inbox un-reads instead of undoing work | M4 |
 | 10 | JQL ranked comparisons by name (`priority > Low`) only work with numbers | small, visible | M2 |
 | 11 | Issue ↔ page links (mention an issue on a page, list pages on an issue) | the reason to have both in one app | M2 |
 | 12 | No attachments | images and files on issues and pages | M2/M3 |
+| 14 | Release blockers: confirm the app id (`io.github.hsmith_dev.trackcraft`), add signing secrets (`docs/releasing.md`); Finder double-click on a `.track` doesn't open it; no DMG background | packaging landed 2026-11-01 (M6.1) | M6 |
+| 15 | Permission UX: a restricted page still shows in the sidebar with local enforcement; the "your access changed" toast needs a resync reason in the sync protocol | permissions UI landed (UI-37) | M4 |
