@@ -8,3 +8,17 @@ Generated-in-code content is original and has no file to list: the sample worksp
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
+
+## Fonts embedded at build time (not in this repository)
+
+Builds made with `CRAFT_FONTS_DIR` set (CI pins storytold/craft-fonts `b076417b5880bd4154bd22f00695b1d28c6bea83`) embed these faces from that checkout into the UI (`crates/ui-egui/build.rs`, `crates/ui-egui/src/fonts.rs`); web builds embed only Arabic, Devanagari and Hebrew. The files and their licence texts live in craft-fonts. Builds without it embed no font beyond egui's own (egui's bundled faces come with the `egui` crate).
+
+| Face | Author | Source | Licence | Notes |
+|---|---|---|---|---|
+| Noto Sans Arabic Regular | Google / Noto project authors | https://github.com/google/fonts/tree/7085eb89a950e85db5b166b7a58d414544b4140c/ofl/notosansarabic | OFL-1.1 | Arabic script fallback |
+| Noto Sans Devanagari Regular | Google / Noto project authors | https://github.com/notofonts/devanagari/releases/tag/NotoSansDevanagari-v2.007 | OFL-1.1 | Devanagari script fallback |
+| Noto Sans Hebrew Regular | Google / Noto project authors | https://github.com/notofonts/hebrew/releases/tag/NotoSansHebrew-v3.001 | OFL-1.1 | Hebrew script fallback |
+| Noto Sans Thai Regular | Google / Noto project authors | https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notosansthai | OFL-1.1 | Thai script fallback (desktop) |
+| Noto Sans Georgian Regular | Google / Noto project authors | https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notosansgeorgian | OFL-1.1 | Georgian script fallback (desktop) |
+| Noto Sans Symbols Regular | Google / Noto project authors | https://github.com/google/fonts/tree/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosanssymbols | OFL-1.1 | Symbol fallback (desktop) |
+| Noto Sans Symbols 2 Regular | Google / Noto project authors | https://github.com/google/fonts/tree/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosanssymbols2 | OFL-1.1 | Symbol fallback (desktop) |
