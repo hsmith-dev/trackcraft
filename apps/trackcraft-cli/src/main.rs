@@ -1,11 +1,18 @@
 //! `trackcraft-cli`: headless TrackCraft — run commands, search with JQL, serve MCP.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use trackcraft_engine::{Session, catalog, commands};
+
+/// The desktop app's config paths (one definition, so both agree on the key file).
+#[allow(dead_code)]
+#[path = "../../trackcraft/src/paths.rs"]
+mod paths;
 
 const USAGE: &str = "\
 usage: trackcraft-cli <command> [options]
@@ -19,6 +26,9 @@ commands:
   new <file.track> [--sample]      create a workspace file (empty, or the sample)
   mcp [--in F | --sample] [--as USER]
                                    serve the MCP protocol on stdio (saves to --in after each change)
+  send <port> <method> ['{json}']  send one control request to a running desktop app
+                                   (`trackcraft --control <port>`) and print the reply;
+                                   the key comes from TRACKCRAFT_CONTROL_KEY or the key file
   parity                           print Jira/Confluence feature coverage
   version
 ";
@@ -148,6 +158,21 @@ fn real_main(args: &[String]) -> Result<(), String> {
             }
             server.serve_stdio().map_err(|e| e.to_string())?;
         }
+        "send" => {
+            let [port, method, rest @ ..] = o.rest.as_slice() else {
+                return Err("usage: send <port> <method> ['{json params}']".into());
+            };
+            let params = match rest {
+                [] => json!({}),
+                [p] => serde_json::from_str(p).map_err(|e| format!("send: params are not JSON: {e}"))?,
+                _ => return Err("send: pass the params as one JSON argument".into()),
+            };
+            let reply = send(port, method, params)?;
+            println!("{}", pretty(&reply));
+            if reply.get("ok") != Some(&Value::Bool(true)) {
+                return Err(reply.get("error").and_then(Value::as_str).unwrap_or("request failed").to_string());
+            }
+        }
         "parity" => {
             let (done, total) = catalog::coverage();
             let pct = if total == 0 { 0.0 } else { done as f64 * 100.0 / total as f64 };
@@ -158,4 +183,29 @@ fn real_main(args: &[String]) -> Result<(), String> {
         other => return Err(format!("unknown command '{other}'\n\n{USAGE}")),
     }
     Ok(())
+}
+
+/// Longest reply line read back from the app.
+const MAX_REPLY: u64 = 64 << 20;
+
+/// One request to the control channel on `127.0.0.1:port`; returns the reply.
+fn send(port: &str, method: &str, params: Value) -> Result<Value, String> {
+    let port: u16 = port.parse().ok().filter(|p| *p > 0).ok_or_else(|| format!("send: invalid port '{port}'"))?;
+    let key = match std::env::var("TRACKCRAFT_CONTROL_KEY").ok().filter(|k| !k.is_empty()) {
+        Some(k) => k,
+        None => {
+            let kp = paths::key_path(port).ok_or("send: no config folder (set HOME or TRACKCRAFT_CONFIG_DIR)")?;
+            let k = std::fs::read_to_string(&kp)
+                .map_err(|e| format!("send: cannot read the key file {} ({e}); is `trackcraft --control {port}` running?", kp.display()))?;
+            k.trim().to_string()
+        }
+    };
+    let stream = std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| format!("send: cannot connect to 127.0.0.1:{port}: {e}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(90))).map_err(|e| e.to_string())?;
+    let mut w = stream.try_clone().map_err(|e| e.to_string())?;
+    let req = json!({"id": 1, "key": key, "method": method, "params": params});
+    writeln!(w, "{req}").map_err(|e| format!("send: {e}"))?;
+    let mut line = String::new();
+    BufReader::new(stream).take(MAX_REPLY).read_line(&mut line).map_err(|e| format!("send: no reply: {e}"))?;
+    serde_json::from_str(line.trim()).map_err(|e| format!("send: bad reply: {e}"))
 }
