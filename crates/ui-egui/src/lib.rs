@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod backlog; // UI-11
+mod charts; // UI-24
 mod directory; // UI-8
 #[doc(hidden)]
 pub mod fixtures; // UI-6
@@ -21,6 +22,7 @@ mod order;
 mod palette;
 mod peek;
 mod project_settings;
+mod reports;
 mod route;
 mod settings; // UI-7
 mod shell;
@@ -245,6 +247,8 @@ pub struct TrackApp {
     pub(crate) access: project_settings::AccessUi, // UI-37
     /// Cached permission answers for enabling controls (UI-37).
     pub(crate) can: widgets::CanCache, // UI-37
+    /// The reports view's tab, choices and query cache (UI-24).
+    pub(crate) reports: reports::ReportsUi, // UI-24
 }
 
 impl TrackApp {
@@ -302,6 +306,7 @@ impl TrackApp {
             conn: status_bar::Connection::default(),       // M4.7
             access: project_settings::AccessUi::default(), // UI-37
             can: widgets::CanCache::default(),             // UI-37
+            reports: reports::ReportsUi::default(),        // UI-24
         }
     }
 
@@ -523,6 +528,7 @@ impl TrackApp {
                 View::Inbox => inbox::view(self, ui, &t),                               // M4.5
                 View::ProjectSettings(k, tab) => project_settings::project(self, ui, &t, &k, tab), // UI-37
                 View::SpaceSettings(k) => project_settings::space(self, ui, &t, &k),    // UI-37
+                View::Reports(p) => reports::view(self, ui, &t, &p),                    // UI-24
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -684,6 +690,7 @@ impl TrackApp {
             View::PageDiff(id, ..) => !self.session.ws.pages.contains_key(id), // UI-27..30
             View::ProjectSettings(k, _) => !self.session.ws.projects.contains_key(k), // UI-37
             View::SpaceSettings(k) => !self.session.ws.spaces.contains_key(k), // UI-37
+            View::Reports(p) => !self.session.ws.projects.contains_key(p), // UI-24
             _ => false,
         };
         if gone {
@@ -721,6 +728,8 @@ impl TrackApp {
     /// - `ui.connection` `{"kind": "online"|"syncing"|"offline"|"error"|null, "label": …, "detail": …,
     ///   "remote": bool}`: sets the status bar's connection indicator (`null` hides it) and/or
     ///   remote mode; answers whether "Reconnect now" is waiting for the host (M4.7)
+    /// - `ui.reports` `{"tab": "burndown"|"velocity"|"cfd"|"createdResolved", "sprint": 7|null, "unit": "points"|"issues",
+    ///   "days": 30, "data": bool}`: sets the reports view's tab and choices (UI-24)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -868,6 +877,28 @@ impl TrackApp {
                     None => {}
                 }
                 Ok(json!({"ok": true, "reconnect": self.conn.reconnect, "remote": self.is_remote()}))
+            }
+            // UI-24
+            "ui.reports" => {
+                if let Some(tab) = p.get("tab").and_then(Value::as_str) {
+                    self.reports.tab = reports::Tab::parse(tab).ok_or("\"tab\" is burndown, velocity, cfd or createdResolved")?;
+                }
+                if let Some(v) = p.get("sprint") {
+                    self.reports.sprint = v.as_u64().map(Id);
+                }
+                match p.get("unit").and_then(Value::as_str) {
+                    Some("issues") => self.reports.issues = true,
+                    Some("points") => self.reports.issues = false,
+                    Some(_) => return Err("\"unit\" is points or issues".into()),
+                    None => {}
+                }
+                if let Some(d) = p.get("days").and_then(Value::as_u64) {
+                    self.reports.days = usize::try_from(d).unwrap_or(30).clamp(1, 366);
+                }
+                if let Some(on) = p.get("data").and_then(Value::as_bool) {
+                    self.reports.show_data = on;
+                }
+                Ok(json!({"ok": true}))
             }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),
         }

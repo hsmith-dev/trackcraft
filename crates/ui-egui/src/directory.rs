@@ -207,6 +207,7 @@ pub(crate) fn view_label(app: &TrackApp, v: &View) -> Option<String> {
         View::Inbox => "Notifications".into(),                                           // M4.5
         View::ProjectSettings(p, _) => format!("{} settings", ws.projects.get(p)?.name), // UI-37
         View::SpaceSettings(k) => format!("{} settings", ws.spaces.get(k)?.name),        // UI-37
+        View::Reports(p) => format!("{} reports", ws.projects.get(p)?.name),             // UI-24
     })
 }
 

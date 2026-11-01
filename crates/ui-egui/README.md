@@ -15,6 +15,7 @@ TrackCraft's egui front end (layer L6). Views read `Session` state and change it
 | `src/wiki/` | `mod.rs` (page view, editor, history, new-page dialog), `comments.rs` (footer + block comments, UI-27), `diff.rs` (version diff, UI-28), `templates.rs` (UI-29), `tree.rs` (tree drag, Copy / Move to…, UI-30) |
 | `src/peek.rs` | Peek pane: read-only issue summary beside the list, board and backlog (`Space`, hover "Peek", `ui.peek`) |
 | `src/import_dialog.rs` | File › Import…: kind and target space, `FileRequest::Import` to the host, the report dialog (`ui.import`) |
+| `src/reports.rs`, `src/charts.rs` | UI-24: Reports view (`View::Reports`, `ui.reports`): burndown, velocity, cumulative flow, created vs resolved; Home's report gadgets; painted charts with legend, tooltips and a data table (`docs/reports.md`) |
 | `src/inbox.rs` | M4.5: top-bar bell (unread count), Inbox view (`View::Inbox`, `G` then `N`), Watch / Watching toggle for issue and page headers |
 | `src/palette.rs` | Command palette: recent destinations first, `ui_route` opens a command's form instead of running it without params |
 | `src/directory.rs` | Projects / Spaces directories, sidebar state (filter, stars kept in egui persisted memory until `user.favourite` exists), Create project / space dialog (UI-8) |

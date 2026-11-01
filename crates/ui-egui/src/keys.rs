@@ -285,6 +285,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::PageDiff(..) => None,                                 // UI-28
         View::Inbox => None,                                        // M4.5
         View::ProjectSettings(..) | View::SpaceSettings(_) => None, // UI-37
+        View::Reports(_) => None,                                   // UI-24
     }
 }
 

@@ -15,6 +15,7 @@ mod list;
 mod nav;
 mod nav_history; // UI-8
 mod permissions_ui; // UI-37
+mod reports; // UI-24
 mod settings; // UI-7
 mod sprints; // UI-12
 mod toast; // UI-5

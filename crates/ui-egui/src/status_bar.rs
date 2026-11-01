@@ -60,6 +60,8 @@ pub(crate) fn context(app: &TrackApp) -> String {
         View::Inbox => "Notifications".into(),                                     // M4.5
         View::ProjectSettings(p, tab) => format!("{p} settings: {}", tab.label()), // UI-37
         View::SpaceSettings(k) => format!("{k} space settings"),                   // UI-37
+        // UI-24
+        View::Reports(p) => format!("{p} reports"),
     };
     middle_truncate(&s, 80)
 }

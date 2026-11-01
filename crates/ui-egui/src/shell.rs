@@ -151,6 +151,7 @@ fn user_menu(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, me: &str, display: &st
 pub(crate) fn current_project(app: &TrackApp) -> Option<String> {
     match &app.view {
         View::Board(p) | View::Backlog(p) | View::SprintBoard(p, _) => Some(p.to_string()),
+        View::Reports(p) => Some(p.to_string()), // UI-24
         View::Issue(k) => Some(k.project.to_string()),
         _ => None,
     }
@@ -591,6 +592,10 @@ fn projects(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
         if nav_item(ui, t, app.view == View::Issues && app.jql == jql, 18.0, "Issues").clicked() {
             app.push(Action::Search(jql));
         }
+        // UI-24
+        if nav_item(ui, t, app.view == View::Reports(pk.clone()), 18.0, "Reports").clicked() {
+            app.push(Action::Nav(View::Reports(pk.clone())));
+        }
     }
     more_link(app, ui, t, hidden, "projects", View::Projects);
     all.len()
@@ -783,40 +788,49 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
         mine.truncate(10);
     }
     mine.sort_by_key(rank);
+    // UI-24: owned rows, so the report gadgets can borrow the app while the columns draw.
+    let mine: Vec<(trackcraft_core::IssueKey, String, String)> =
+        mine.iter().map(|i| (i.key.clone(), i.issue_type.clone(), i.summary.clone())).collect();
     let mut pages: Vec<_> = ws.pages.values().filter(|p| p.parent.is_some()).collect();
     pages.sort_by_key(|p| std::cmp::Reverse(p.updated));
+    let pages: Vec<(Id, String, String, trackcraft_model::Timestamp)> =
+        pages.iter().take(10).map(|p| (p.id, p.title.clone(), p.space.to_string(), p.updated)).collect();
     let mut actions = Vec::new();
+    // UI-24: a two-column dashboard of fixed gadgets (reorderable later).
     ui.columns(2, |cols| {
         if let Some(c) = cols.get_mut(0) {
             card(c, t, "Assigned to me", |ui| {
                 if mine.is_empty() {
                     empty_state(ui, t, "", "Nothing assigned to you. Nice.", None);
                 }
-                for i in &mine {
+                for (key, ty, summary) in &mine {
                     ui.horizontal(|ui| {
-                        icons::issue_type(ui, &i.issue_type, 16.0);
-                        if ui.link(RichText::new(i.key.to_string()).color(t.muted).monospace()).clicked() || link_truncated(ui, &i.summary).clicked()
-                        {
-                            actions.push(Action::Nav(View::Issue(i.key.clone())));
+                        icons::issue_type(ui, ty, 16.0);
+                        if ui.link(RichText::new(key.to_string()).color(t.muted).monospace()).clicked() || link_truncated(ui, summary).clicked() {
+                            actions.push(Action::Nav(View::Issue(key.clone())));
                         }
                     });
                 }
             });
+            c.add_space(12.0);
+            crate::reports::created_resolved_gadget(app, c, t);
         }
         if let Some(c) = cols.get_mut(1) {
+            crate::reports::active_sprint_gadget(app, c, t);
+            c.add_space(12.0);
             card(c, t, "Recently updated pages", |ui| {
                 if pages.is_empty() {
                     empty_state(ui, t, "", "No pages yet. Pages you or your team write show up here.", None);
                 }
-                for p in pages.iter().take(10) {
+                for (id, title, space, updated) in &pages {
                     ui.horizontal(|ui| {
                         icons::page(ui, t, 16.0);
                         // Right to left: the meta text keeps its place, the title truncates.
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(format!("{} · {}", p.space, crate::ago(now, p.updated))).color(t.muted).size(12.0));
+                            ui.label(RichText::new(format!("{space} · {}", crate::ago(now, *updated))).color(t.muted).size(12.0));
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                if link_truncated(ui, &p.title).clicked() {
-                                    actions.push(Action::Nav(View::Page(p.id)));
+                                if link_truncated(ui, title).clicked() {
+                                    actions.push(Action::Nav(View::Page(*id)));
                                 }
                             });
                         });
