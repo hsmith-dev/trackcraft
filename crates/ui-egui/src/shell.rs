@@ -76,6 +76,7 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                     let display = app.session.ws.users.get(&me).map(|u| u.display_name.clone()).unwrap_or_else(|| me.clone());
                     // UI-7: the avatar menu (who you act as, theme, Settings).
                     user_menu(app, ui, t, &me, &display);
+                    crate::inbox::bell(app, ui, t); // M4.5
                     let redo = ui
                         .add_enabled(app.session.can_redo(), egui::Button::new("Redo").small())
                         .on_hover_text(format!("Redo ({})", crate::key("Mod+Shift+Z")));

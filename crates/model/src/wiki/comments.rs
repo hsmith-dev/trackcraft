@@ -154,7 +154,7 @@ impl Workspace {
         let p = self.pages.get_mut(&page).ok_or(ModelError::NoSuchPage(page))?;
         p.comments.push(PageComment {
             id,
-            author,
+            author: author.clone(),
             body: new.body,
             created: now,
             edited: None,
@@ -163,6 +163,7 @@ impl Workspace {
             resolved: false,
             resolved_by: None,
         });
+        self.notify_page_comment(page, id, &author, now); // M4.5
         Ok(id)
     }
 

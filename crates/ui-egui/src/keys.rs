@@ -162,6 +162,8 @@ pub(crate) enum Act {
     Settings,
     /// Peek at the selected issue (fixes).
     Peek,
+    /// Open the Inbox (M4.5).
+    GoInbox,
 }
 
 #[derive(Debug, Clone)]
@@ -229,6 +231,7 @@ pub(crate) const UI_BINDINGS: &[(Scope, &str, &str, Act)] = &[
     (Scope::List, "Space", "Peek at the selected issue", Act::Peek),    // fixes
     (Scope::Board, "Space", "Peek at the selected card", Act::Peek),    // fixes
     (Scope::Backlog, "Space", "Peek at the selected issue", Act::Peek), // fixes
+    (Scope::Global, "G then N", "Go to notifications", Act::GoInbox),   // M4.5
 ];
 
 /// The keymap: every registry shortcut, then the UI-only bindings.
@@ -280,6 +283,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Projects | View::Spaces => None, // UI-8
         View::Settings(_) => None,             // UI-7
         View::PageDiff(..) => None,            // UI-28
+        View::Inbox => None,                   // M4.5
     }
 }
 
@@ -429,7 +433,8 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
         Act::Forward => app.push(Action::Forward), // UI-8
         // UI-7
         Act::Settings => app.push(Action::Nav(View::Settings(crate::settings::Tab::Appearance))),
-        Act::Peek => crate::peek::toggle(app), // fixes
+        Act::Peek => crate::peek::toggle(app),              // fixes
+        Act::GoInbox => app.push(Action::Nav(View::Inbox)), // M4.5
     }
 }
 

@@ -13,6 +13,7 @@ pub mod fonts; // fonts
 mod guard;
 pub mod icons;
 mod import_dialog; // fixes
+mod inbox; // M4.5
 mod issues;
 mod keys;
 pub mod markup_view;
@@ -508,6 +509,7 @@ impl TrackApp {
                 View::Spaces => directory::spaces(self, ui, &t),                        // UI-8
                 View::Settings(tab) => settings::show(self, ui, &t, tab),               // UI-7
                 View::PageDiff(id, from, to) => wiki::diff::view(self, ui, &t, id, from, to), // UI-27..30
+                View::Inbox => inbox::view(self, ui, &t),                               // M4.5
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);

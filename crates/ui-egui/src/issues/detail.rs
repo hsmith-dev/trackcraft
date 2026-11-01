@@ -62,6 +62,9 @@ fn detail_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
         }
         icons::issue_type(ui, &issue.issue_type, 16.0);
         ui.label(RichText::new(&k).monospace().color(t.muted));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            crate::inbox::watch_toggle(app, ui, trackcraft_model::Target::Issue(key.clone()))
+        }); // M4.5
     });
     ui.add_space(4.0);
 

@@ -8,6 +8,7 @@
 
 mod agile;
 mod import;
+mod notify;
 mod rank;
 mod record;
 mod tracker;
@@ -20,6 +21,7 @@ use trackcraft_core::{Id, IdGen, IssueKey, ProjectKey};
 
 pub use agile::{Anchor, Completion, MAX_GOAL, MAX_MOVE, MAX_SPRINTS, MoveOpenTo, Sprint, SprintEdit, SprintState};
 pub use import::MAX_IMPORTED_KINDS;
+pub use notify::{Inbox, MAX_NOTIFICATIONS, MAX_WATCHES, NOTIFY_EXCERPT, Notification, NotifyKind, Target, Watches};
 pub use rank::{MAX_RANK_LEN, is_valid_rank, rank_between, ranks_between, rebalanced};
 pub use record::IssueRecord;
 pub use trackcraft_core::Timestamp;
@@ -103,6 +105,9 @@ pub struct Workspace {
     /// Saved page templates, workspace-wide or per space (older files load with none).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub templates: BTreeMap<Id, Template>,
+    /// M4.5: notifications and watch lists, per user (older files load with none).
+    #[serde(default, skip_serializing_if = "Inbox::is_empty")]
+    pub inbox: Inbox,
     pub ids: IdGen,
     /// Transient (never saved): whether history entries are being grouped into one change.
     #[serde(skip)]
@@ -136,6 +141,7 @@ impl Workspace {
             pages: BTreeMap::new(),
             sprints: BTreeMap::new(),
             templates: BTreeMap::new(),
+            inbox: Inbox::default(),
             ids: IdGen::default(),
             batch: Batch::Off,
         }

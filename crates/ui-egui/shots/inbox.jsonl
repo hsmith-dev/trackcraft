@@ -1,0 +1,21 @@
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"engine.execute","params":{"command":"user.switch","params":{"id":"sam"}}}
+{"method":"engine.execute","params":{"command":"issue.assign","params":{"key":"LUME-3","assignee":"riley"}}}
+{"method":"engine.execute","params":{"command":"issue.comment","params":{"key":"LUME-3","body":"@riley could you take this one? The contrast fix is blocked on it."}}}
+{"method":"engine.execute","params":{"command":"user.switch","params":{"id":"jo"}}}
+{"method":"engine.execute","params":{"command":"issue.transition","params":{"key":"LUME-3","to":"In Progress"}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Thanks @riley, this section reads much better now."}}}
+{"method":"engine.execute","params":{"command":"user.switch","params":{"id":"riley"}}}
+{"method":"ui.navigate","params":{"view":"inbox"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/inbox.png"}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-3"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/inbox-issue.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"inbox"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/inbox-dark.png"}
+{"method":"ui.navigate","params":{"view":"page","id":24}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/inbox-page-dark.png"}
