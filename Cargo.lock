@@ -4056,6 +4056,7 @@ dependencies = [
  "serde_json",
  "trackcraft-engine",
  "trackcraft-store",
+ "trackcraft-sync-proto",
  "trackcraft-ui-egui",
  "wasm-bindgen",
  "wasm-bindgen-futures",

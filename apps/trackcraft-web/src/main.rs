@@ -10,16 +10,21 @@
 //! memory, and the open workspace is kept in the browser's `localStorage` so a reload keeps it.
 //! URL flags: `?sample` opens the sample workspace (instead of the stored one), `?webgl` forces
 //! WebGL2. Served by `trackcraft-server serve --web DIR`, the page notices the server (same
-//! origin, `api/health`); editing server workspaces waits for sync (M4.2, see [`remote`]).
+//! origin, `api/health`) and offers to connect to a server workspace with a token; it is then
+//! edited live (M4.6: [`sync`] is the state machine, `sync_web` the fetch/EventSource transport).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 #[cfg(any(target_arch = "wasm32", test))]
 mod logic;
 #[cfg(any(target_arch = "wasm32", test))]
 mod remote;
+#[cfg(any(target_arch = "wasm32", test))]
+mod sync;
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
+#[cfg(target_arch = "wasm32")]
+mod sync_web;
 #[cfg(target_arch = "wasm32")]
 mod web;
 

@@ -37,6 +37,14 @@ pub fn store(key: &str, value: &str) -> Result<(), String> {
     local_storage().ok_or("browser storage is unavailable")?.set_item(key, value).map_err(js)
 }
 
+/// Removes `key` from storage (nothing to do when storage is unavailable).
+pub fn remove(key: &str) -> Result<(), String> {
+    match local_storage() {
+        Some(s) => s.remove_item(key).map_err(js),
+        None => Ok(()),
+    }
+}
+
 /// Starts a download of `bytes` as `name` (a Blob behind an object URL and a clicked `<a download>`).
 pub fn download(name: &str, bytes: &[u8], mime: &str) -> Result<(), String> {
     let window = web_sys::window().ok_or("no window")?;

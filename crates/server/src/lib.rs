@@ -8,6 +8,7 @@
 
 pub mod config;
 pub mod static_files;
+pub mod ticket;
 pub mod workspaces;
 
 use std::future::Future;
@@ -181,7 +182,7 @@ impl Server {
 /// The mountable router for a server: `trackcraft_api::router` with the server's limits.
 pub fn router(server: &Server) -> Router {
     let o = &server.options;
-    static_files::with_web(trackcraft_api::router(server.api_state()), o.web.as_deref())
+    static_files::with_web(ticket::api_router(server), o.web.as_deref())
         .layer(DefaultBodyLimit::max(o.max_body_bytes))
         .layer(from_fn_with_state(o.timeout, timeout))
         .layer(from_fn_with_state(o.log_requests, log))

@@ -50,15 +50,6 @@ pub fn parse_health(body: &str) -> Option<String> {
     Some(version)
 }
 
-/// The note shown when the page is served by a TrackCraft server.
-pub fn server_note(version: &str) -> String {
-    if version.is_empty() {
-        "Served by a TrackCraft server. Server workspaces: open with a token (coming with sync); this tab edits a local copy.".into()
-    } else {
-        format!("Served by TrackCraft server {version}. Server workspaces: open with a token (coming with sync); this tab edits a local copy.")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,7 +86,5 @@ mod tests {
         assert_eq!(parse_health(r#"{"status":"ok"}"#).as_deref(), Some(""));
         assert_eq!(parse_health(r#"{"status":"down"}"#), None);
         assert_eq!(parse_health("<!DOCTYPE html>"), None);
-        assert!(server_note("0.1.0").contains("Server workspaces: open with a token"));
-        assert!(server_note("").contains("Server workspaces: open with a token"));
     }
 }
