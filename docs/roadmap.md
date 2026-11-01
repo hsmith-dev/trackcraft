@@ -4,7 +4,7 @@
 
 ## Current focus: M1 — desktop app (landed 2026-10-31; finishing)
 
-Done: M1.1–M1.6 below. Open: M1.7 (a TCP control channel for the running app, like the siblings; `TrackApp::control` already implements the methods), keyboard navigation in lists and boards, window geometry and recent files, autosave, interface translations (craft-i18n), and board column order by rank (needs M2 rank).
+Done: M1.1–M1.6 below. Landed later the same day: M1.7 (control channel, autosave, recent files) and M1.8 (keyboard navigation). Open (see `ui-plan.md` UI-1…UI-10): unsaved-edit guard, UI file split, virtualised list, Open Recent menu, window geometry, interface translations (craft-i18n), and board column order by rank (needs M2 rank).
 
 Bring up `crates/ui-egui` and `apps/trackcraft` on the suite's egui fork (same pins and patch
 section as `../Wordcraft/wordcraft/Cargo.toml`), with the siblings' conventions: theme tokens,

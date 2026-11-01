@@ -2,7 +2,7 @@
 
 **Stage: pre-alpha** · M1 desktop UI landed; next: M1 polish, then M2 tracker depth
 
-> **Last updated:** 2026-10-31 · **Change:** M0 foundation (workspace, engine, JQL, store, MCP, CLI, gates).
+> **Last updated:** 2026-10-31 · **Change:** M1 UI, control channel, keyboard navigation, issue history.
 
 TrackCraft aims for parity with Jira (Software and Work Management) and Confluence, then goes
 further on speed, offline use, openness and agent control. This page is the summary; the
@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **50 / 110 (45.5%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Feature catalog coverage | **52 / 110 (47.3%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | Ready for real work | **~15%**: single-user desktop app works; no server, sprints or import | estimated |
-| Commands | 38 | measured (`trackcraft-cli commands`) |
+| Commands | 39 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -35,6 +35,12 @@ parity.
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-10-31 · M1.7, M1.8, M2.1** (three agents in parallel) — Control channel for the running
+  app (`trackcraft --control`, `trackcraft-cli send`), autosave and recent files; keyboard
+  navigation (list j/k, board h/j/k/l and Shift+Arrow transitions, issue a/m/e, `?` shortcut
+  help) and sortable list columns; issue activity history (`issue.history`) and JQL
+  `WAS`/`CHANGED`. UI plan written: [`docs/ui-plan.md`](docs/ui-plan.md).
 
 - **2026-10-31 · M1** — Desktop app (`apps/trackcraft`) and `crates/ui-egui` on the suite's egui
   fork with craft-ui: sidebar (filters, projects, page trees), JQL issue list, board with
