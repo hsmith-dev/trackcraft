@@ -32,7 +32,7 @@ fn catalog_ids_exist_and_floor_holds() {
     }
     let (done, total) = catalog::coverage();
     // The floor only rises: raise it when you implement catalog rows.
-    assert!(done >= 61, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 63, "catalog coverage fell to {done}/{total}");
 }
 
 /// Every command, fed junk, returns an error or a value — never a panic, and a failed command
@@ -77,6 +77,11 @@ fn hostile_params_never_panic() {
         json!({"name": "n".repeat(100_000), "id": "riley", "email": format!("{}@x.org", "a".repeat(100_000))}),
         json!({"id": "riley", "email": "not an email", "name": []}),
         json!({"id": ["riley"], "email": null, "name": null}),
+        // M5.1 workspace.import params.
+        json!({"kind": "jiraCsv", "path": "/nonexistent/trackcraft/export.csv"}),
+        json!({"kind": "confluence", "path": "", "space": "bad key"}),
+        json!({"kind": ["jiraJson"], "path": 7, "space": 3}),
+        json!({"kind": "nope", "path": "x"}),
         json!({"key": "LUME-6", "type": "blocks", "target": "LUME-2"}),
         json!({"key": "LUME-2", "type": "nope", "target": "LUME-6"}),
         json!({"key": "LUME-2", "type": 5, "target": ["LUME-6"]}),
@@ -648,4 +653,23 @@ fn revision_counts_changes_undo_and_redo() {
     assert_eq!((s.revision(), s.undo_depth(), s.redo_depth()), (3, 1, 0));
     run(&mut s, "workspace.new", json!({"name": "Fresh"}));
     assert_eq!((s.revision(), s.undo_depth()), (4, 0));
+}
+
+#[test]
+fn workspace_import_is_one_undo_step() {
+    let mut s = session();
+    let dir = std::env::temp_dir().join(format!("trackcraft-engine-import-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("export.csv");
+    // A synthetic CSV in the documented export columns (never a real export).
+    std::fs::write(&path, "Summary,Issue key,Status,Labels,Labels\nImported one,IMP-4,Triage,a,b\n").unwrap();
+    let r = run(&mut s, "workspace.import", json!({"kind": "jiraCsv", "path": path.display().to_string()}));
+    assert_eq!(r["issues"], 1);
+    assert_eq!(r["projects"], json!(["IMP"]));
+    let i = s.ws.issue("IMP-4").unwrap();
+    assert_eq!((i.status.as_str(), i.labels.clone()), ("Triage", vec!["a".to_string(), "b".to_string()]));
+    run(&mut s, "edit.undo", json!({}));
+    assert!(s.ws.issue("IMP-4").is_err());
+    assert!(s.run("workspace.import", &json!({"kind": "jiraJson", "path": path.display().to_string()})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }

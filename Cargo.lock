@@ -179,6 +179,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+dependencies = [
+ "derive_arbitrary",
+]
+
+[[package]]
 name = "arboard"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,6 +855,17 @@ name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
 
 [[package]]
 name = "dify"
@@ -3813,6 +3833,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "trackcraft-engine",
+ "trackcraft-import",
  "trackcraft-mcp",
  "trackcraft-store",
 ]
@@ -3834,11 +3855,25 @@ dependencies = [
  "chrono",
  "serde_json",
  "trackcraft-core",
+ "trackcraft-import",
  "trackcraft-jql",
  "trackcraft-markup",
  "trackcraft-model",
  "trackcraft-store",
  "web-time",
+]
+
+[[package]]
+name = "trackcraft-import"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "serde_json",
+ "trackcraft-core",
+ "trackcraft-markup",
+ "trackcraft-model",
+ "zip",
 ]
 
 [[package]]
@@ -5068,6 +5103,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "zip"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12598812502ed0105f607f941c386f43d441e00148fce9dec3ca5ffb0bde9308"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
 ]
 
 [[package]]

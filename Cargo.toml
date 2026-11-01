@@ -21,6 +21,7 @@ trackcraft-engine = { path = "crates/engine" }
 trackcraft-mcp = { path = "crates/mcp" }
 trackcraft-api = { path = "crates/api" }
 trackcraft-server-lib = { path = "crates/server" }
+trackcraft-import = { path = "crates/import" }
 trackcraft-ui-egui = { path = "crates/ui-egui" }
 
 # foundation
@@ -40,6 +41,10 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 sha2 = "0.10"
 getrandom = "0.3"
 hex = "0.4"
+# imports (crates/import): reading Confluence export .zip files. zip is MIT; deflate only,
+# through flate2 (MIT OR Apache-2.0) on its pure-Rust miniz_oxide backend (MIT OR Zlib OR Apache-2.0).
+zip = { version = "3", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 # ui — the suite's egui fork (same pins as the sibling apps; see [patch.crates-io])
 egui = "0.37"

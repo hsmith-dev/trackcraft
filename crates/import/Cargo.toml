@@ -1,0 +1,20 @@
+[package]
+name = "trackcraft-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Importers for Jira CSV/JSON exports and Confluence space exports (formats from public docs)"
+
+[dependencies]
+trackcraft-core.workspace = true
+trackcraft-markup.workspace = true
+trackcraft-model.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+zip.workspace = true
+flate2.workspace = true
+
+[lints]
+workspace = true

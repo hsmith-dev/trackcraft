@@ -10,6 +10,7 @@ repository.workspace = true
 trackcraft-engine.workspace = true
 trackcraft-store.workspace = true
 trackcraft-mcp.workspace = true
+trackcraft-import.workspace = true
 serde_json.workspace = true
 
 [lints]

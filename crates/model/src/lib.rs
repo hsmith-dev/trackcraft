@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod agile;
+mod import;
 mod rank;
 mod record;
 mod tracker;
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use trackcraft_core::{Id, IdGen, IssueKey, ProjectKey};
 
 pub use agile::{Anchor, Completion, MAX_GOAL, MAX_MOVE, MAX_SPRINTS, MoveOpenTo, Sprint, SprintEdit, SprintState};
+pub use import::MAX_IMPORTED_KINDS;
 pub use rank::{MAX_RANK_LEN, is_valid_rank, rank_between, ranks_between, rebalanced};
 pub use record::IssueRecord;
 pub use trackcraft_core::Timestamp;
