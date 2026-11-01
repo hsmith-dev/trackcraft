@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **52 / 110 (47.3%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
-| Ready for real work | **~15%**: single-user desktop app works; no server, sprints or import | estimated |
-| Commands | 39 | measured (`trackcraft-cli commands`) |
+| Feature catalog coverage | **55 / 110 (50.0%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ready for real work | **~22%**: single-user desktop app with backlog and sprints; no server or import | estimated |
+| Commands | 48 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -35,6 +35,12 @@ parity.
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-10-31 · UI-1, UI-2, UI-3, UI-4, M2.2, UI-11/12** (agents in parallel) — Unsaved-edit
+  guard; UI crate split into modules; virtualised issue list with paging and a column chooser;
+  one scoped keymap from the command registry (redo-while-typing fixed, G-chords, palette shows
+  shortcuts); backlog, rank and sprints in the engine with JQL `sprint`/`openSprints()`/
+  `ORDER BY rank`; backlog screen with drag rank, sprint start/complete/edit dialogs, sprint board.
 
 - **2026-10-31 · M1.7, M1.8, M2.1** (three agents in parallel) — Control channel for the running
   app (`trackcraft --control`, `trackcraft-cli send`), autosave and recent files; keyboard
