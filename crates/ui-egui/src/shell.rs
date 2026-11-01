@@ -147,6 +147,7 @@ pub(crate) fn current_project(app: &TrackApp) -> Option<String> {
     match &app.view {
         View::Board(p) | View::Backlog(p) | View::SprintBoard(p, _) => Some(p.to_string()),
         View::Issue(k) => Some(k.project.to_string()),
+        View::ProjectFields(p) | View::Releases(p) => Some(p.to_string()), // M2.4
         _ => None,
     }
 }

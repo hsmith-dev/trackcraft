@@ -7,6 +7,7 @@
 
 mod backlog; // UI-11
 mod directory; // UI-8
+mod fields_admin; // M2.4
 #[doc(hidden)]
 pub mod fixtures; // UI-6
 pub mod fonts; // fonts
@@ -20,6 +21,7 @@ pub mod markup_view;
 mod order;
 mod palette;
 mod peek;
+mod releases;
 mod route;
 mod settings; // UI-7
 mod shell;
@@ -28,7 +30,7 @@ mod status_bar; // UI-5
 pub mod theme;
 mod toast; // UI-5
 mod widgets;
-mod wiki; // fixes
+mod wiki; // fixes // M2.4
 
 use serde_json::{Value, json};
 use trackcraft_core::{Id, IssueKey};
@@ -137,6 +139,8 @@ pub(crate) struct CreateForm {
     pub label_draft: String,
     pub sprint: Option<Id>,
     pub create_another: bool,
+    /// Components and required custom fields (M2.4).
+    pub m24: issues::CreateExtra, // M2.4
 }
 
 impl CreateForm {
@@ -240,6 +244,8 @@ pub struct TrackApp {
     pub(crate) import: import_dialog::ImportUi, // fixes
     /// The server connection indicator and remote mode (M4.7).
     pub(crate) conn: status_bar::Connection, // M4.7
+    /// The fields editor and releases view (M2.4).
+    pub(crate) m24: fields_admin::FieldsUi, // M2.4
 }
 
 impl TrackApp {
@@ -295,6 +301,7 @@ impl TrackApp {
             peek: None,                                 // fixes
             import: import_dialog::ImportUi::default(), // fixes
             conn: status_bar::Connection::default(),    // M4.7
+            m24: fields_admin::FieldsUi::default(),     // M2.4
         }
     }
 
@@ -514,6 +521,8 @@ impl TrackApp {
                 View::Settings(tab) => settings::show(self, ui, &t, tab),               // UI-7
                 View::PageDiff(id, from, to) => wiki::diff::view(self, ui, &t, id, from, to), // UI-27..30
                 View::Inbox => inbox::view(self, ui, &t),                               // M4.5
+                View::ProjectFields(p) => fields_admin::show(self, ui, &t, &p),         // M2.4
+                View::Releases(p) => releases::show(self, ui, &t, &p),                  // M2.4
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -673,6 +682,7 @@ impl TrackApp {
             View::Backlog(p) => !self.session.ws.projects.contains_key(p), // UI-11
             View::SprintBoard(_, id) => !self.session.ws.sprints.contains_key(id), // UI-12
             View::PageDiff(id, ..) => !self.session.ws.pages.contains_key(id), // UI-27..30
+            View::ProjectFields(p) | View::Releases(p) => !self.session.ws.projects.contains_key(p), // M2.4
             _ => false,
         };
         if gone {

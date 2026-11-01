@@ -131,6 +131,7 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
                 form.labels = next;
             }
             ui.end_row();
+            super::fields::create_rows(ui, t, ws, &me, &form.project, &mut form.m24); // M2.4
             let subtask = subtask_type(ws, &form.project, &form.issue_type);
             // UI-9: an open sprint of the project (a sub-task follows its parent's sprint).
             let sprints: Vec<(trackcraft_core::Id, String, SprintState)> = ws
@@ -228,6 +229,7 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
         if let Some(s) = form.sprint.filter(|_| !subtask) {
             p["sprint"] = json!(s.0);
         }
+        super::fields::create_params(&mut p, &form.m24); // M2.4
         match app.session.run("issue.create", &p) {
             Ok(v) => {
                 app.jql_ran = None;

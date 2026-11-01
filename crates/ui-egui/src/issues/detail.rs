@@ -871,6 +871,7 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
             app.push(a);
         }
     });
+    super::fields::section(app, ui, t, issue, k); // M2.4
     ui.add_space(10.0);
     if app.issue_ui.confirm_delete {
         ui.label(RichText::new(format!("Delete {k} and its sub-tasks?")).color(t.danger));

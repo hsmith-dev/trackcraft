@@ -15,11 +15,14 @@ const HEADER_HEIGHT: f32 = 26.0;
 pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     app.refresh_search();
     let mut mask = columns(ui.ctx());
+    let mut extra = extra_columns(ui.ctx()); // M2.4
+    let choices = super::fields::column_choices(&app.session.ws); // M2.4
     ui.horizontal(|ui| {
         ui.heading(RichText::new("Issues").size(22.0));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| column_chooser(ui, &mut mask));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| column_chooser(ui, &mut mask, &mut extra, &choices));
     });
     set_columns(ui.ctx(), mask);
+    set_extra_columns(ui.ctx(), &extra); // M2.4
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         let mut q = app.jql.clone();
@@ -65,11 +68,11 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let mut open = None;
     let mut hover = None; // fixes: the row under the pointer gets a Peek button
     let pointer = ui.ctx().pointer_latest_pos();
-    let mut sort: Option<&str> = None;
+    let mut sort: Option<String> = None;
     card(ui, t, "", |ui| {
         ui.visuals_mut().selection.bg_fill = t.accent_soft;
         let mut table = TableBuilder::new(ui)
-            .id_salt(("issue-table", mask))
+            .id_salt(("issue-table", mask, extra.len()))
             .striped(true)
             .resizable(true)
             .sense(egui::Sense::click())
@@ -78,6 +81,9 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
             .max_scroll_height(f32::INFINITY);
         for c in &cols {
             table = table.column(c.column());
+        }
+        for _ in &extra {
+            table = table.column(egui_extras::Column::initial(120.0).at_least(50.0).clip(true)); // M2.4
         }
         if scroll && let Some(r) = sel_row {
             table = table.scroll_to_row(r, None);
@@ -97,7 +103,24 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                         }
                         let next = if on == Some(false) { "descending" } else { "ascending" };
                         if r.on_hover_text(format!("Sort by {} ({next})", c.header().to_lowercase())).clicked() {
-                            sort = Some(c.field());
+                            sort = Some(c.field().to_string());
+                        }
+                    });
+                }
+                // M2.4: custom field, component and version columns.
+                for x in &extra {
+                    header.col(|ui| {
+                        let field = super::fields::column_field(x);
+                        let bare = field.trim_matches('"').to_lowercase();
+                        let on = sorted.as_ref().filter(|(f, _)| *f == bare).map(|(_, desc)| *desc);
+                        let color = if on.is_some() { t.text } else { t.muted };
+                        let head = super::fields::column_header(x);
+                        let r = ui.add(egui::Button::new(RichText::new(&head).size(12.0).color(color).strong()).frame(false).truncate());
+                        if let Some(desc) = on {
+                            sort_arrow(ui, t, desc);
+                        }
+                        if r.on_hover_text(format!("Sort by {head}")).clicked() {
+                            sort = Some(field);
                         }
                     });
                 }
@@ -107,7 +130,17 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                     let n = row.index();
                     let Some(issue) = keys.get(n).and_then(|k| ws.issues.get(k)) else { return };
                     row.set_selected(sel_row == Some(n));
-                    let r = issue_row(&mut row, &cx, issue, &cols);
+                    let mut r = issue_row(&mut row, &cx, issue, &cols);
+                    for x in &extra {
+                        let text = super::fields::cell_text(ws, issue, x); // M2.4
+                        let (_, cell) = row.col(|ui| {
+                            ui.add(egui::Label::new(RichText::new(text).color(t.muted)).truncate());
+                        });
+                        r = Some(match r {
+                            Some(a) => a.union(cell),
+                            None => cell,
+                        });
+                    }
                     if r.as_ref().is_some_and(|r| r.clicked()) {
                         open = Some(issue.key.clone());
                     }
@@ -125,7 +158,7 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
         crate::peek::open(app, k);
     }
     if let Some(field) = sort {
-        app.push(Action::Search(crate::order::sort_by(&app.jql, field)));
+        app.push(Action::Search(crate::order::sort_by(&app.jql, &field)));
     }
     if let Some(k) = open {
         app.list_sel = Some(k.clone());
@@ -206,8 +239,9 @@ fn empty(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     }
 }
 
-/// The column chooser: a menu of checkboxes for the optional columns.
-fn column_chooser(ui: &mut Ui, mask: &mut u32) {
+/// The column chooser: a menu of checkboxes for the optional columns (M2.4: then components,
+/// versions and custom fields).
+fn column_chooser(ui: &mut Ui, mask: &mut u32, extra: &mut Vec<String>, choices: &[String]) {
     // Stays open while ticking boxes, so several columns can be changed at once.
     let config = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
     egui::containers::menu::MenuButton::new("Columns").config(config).ui(ui, |ui| {
@@ -217,11 +251,44 @@ fn column_chooser(ui: &mut Ui, mask: &mut u32) {
                 *mask ^= c.bit();
             }
         }
+        // M2.4
+        ui.separator();
+        egui::ScrollArea::vertical().max_height(260.0).id_salt("extra-columns").show(ui, |ui| {
+            for c in choices {
+                let mut on = extra.contains(c);
+                if ui.checkbox(&mut on, super::fields::column_header(c)).changed() {
+                    if on {
+                        if extra.len() < MAX_EXTRA {
+                            extra.push(c.clone());
+                        }
+                    } else {
+                        extra.retain(|x| x != c);
+                    }
+                }
+            }
+        });
         ui.separator();
         if ui.button("Reset columns").clicked() {
             *mask = default_columns();
+            extra.clear();
         }
     });
+}
+
+// M2.4: extra columns, by name (`component`, `fixVersion`, `affectedVersion`, `cf:Name`).
+const MAX_EXTRA: usize = 12;
+
+fn extra_id() -> egui::Id {
+    egui::Id::unique("issue-list-extra-columns")
+}
+
+pub(crate) fn extra_columns(ctx: &egui::Context) -> Vec<String> {
+    ctx.data_mut(|d| d.get_persisted_mut_or_default::<Vec<String>>(extra_id()).clone())
+}
+
+fn set_extra_columns(ctx: &egui::Context, v: &[String]) {
+    let v: Vec<String> = v.iter().take(MAX_EXTRA).cloned().collect();
+    ctx.data_mut(|d| d.insert_persisted(extra_id(), v));
 }
 
 fn columns_id() -> egui::Id {

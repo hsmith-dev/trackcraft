@@ -69,7 +69,8 @@ pub(crate) fn current_sort(jql: &str) -> Option<(String, bool)> {
 
 /// `jql` sorted by `field`: ascending, or descending when it already sorts by `field` ascending.
 pub(crate) fn sort_by(jql: &str, field: &str) -> String {
-    let desc = current_sort(jql).is_some_and(|(f, d)| f == field.to_lowercase() && !d);
+    let bare = field.trim_matches(|c| c == '"' || c == '\'').to_lowercase(); // M2.4: quoted custom field names
+    let desc = current_sort(jql).is_some_and(|(f, d)| f == bare && !d);
     let dir = if desc { "DESC" } else { "ASC" };
     let (filter, _) = split_order_by(jql);
     if filter.is_empty() { format!("ORDER BY {field} {dir}") } else { format!("{filter} ORDER BY {field} {dir}") }

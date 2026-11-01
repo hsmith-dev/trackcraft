@@ -280,10 +280,11 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Issue(_) => Some(Scope::Issue),
         View::Page(id) if !app.page_edit.as_ref().is_some_and(|e| e.id == *id) => Some(Scope::Page),
         View::Page(_) | View::Home | View::PageHistory(_) => None,
-        View::Projects | View::Spaces => None, // UI-8
-        View::Settings(_) => None,             // UI-7
-        View::PageDiff(..) => None,            // UI-28
-        View::Inbox => None,                   // M4.5
+        View::Projects | View::Spaces => None,              // UI-8
+        View::Settings(_) => None,                          // UI-7
+        View::PageDiff(..) => None,                         // UI-28
+        View::Inbox => None,                                // M4.5
+        View::ProjectFields(_) | View::Releases(_) => None, // M2.4
     }
 }
 

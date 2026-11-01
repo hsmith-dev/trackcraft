@@ -26,3 +26,5 @@ pub(crate) use number_field::number_field; // UI-9
 pub(crate) use user_picker::{Picked, user_picker}; // UI-9
 mod snippet; // UI-fixes
 pub(crate) use snippet::{quote_excerpt, snippet, word_prefix}; // UI-fixes
+mod chip_picker; // M2.4
+pub(crate) use chip_picker::{chip_picker, commit_field}; // M2.4

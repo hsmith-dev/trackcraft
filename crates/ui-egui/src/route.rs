@@ -30,6 +30,10 @@ pub enum View {
     PageDiff(Id, u32, u32),
     /// The acting user's notifications (M4.5).
     Inbox,
+    /// A project's custom fields, components and versions (M2.4; becomes a project settings tab).
+    ProjectFields(ProjectKey),
+    /// A project's versions with progress and Release (M2.4).
+    Releases(ProjectKey),
 }
 
 /// The view a `ui.navigate` request names:
@@ -68,6 +72,12 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
             View::PageDiff(id, from, to)
         }
         "inbox" => View::Inbox, // M4.5
+        // M2.4: `{"view": "fields"|"releases", "project": "LUME"}`.
+        "fields" | "releases" => {
+            let k = ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?;
+            ws.project(k.as_str()).map_err(|e| e.to_string())?;
+            if s("view") == "fields" { View::ProjectFields(k) } else { View::Releases(k) }
+        }
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.
