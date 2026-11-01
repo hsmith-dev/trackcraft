@@ -611,7 +611,12 @@ fn tree(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, parent: Id, depth: usize) {
         let indent = 6.0 + depth as f32 * 12.0 + if has_kids { 0.0 } else { 14.0 + ui.spacing().item_spacing.x };
         let row =
             Row { indent, selected: sel, strong: false, label: &title, chevron: has_kids.then_some(open), star: Some((on, &title)), plus: false };
-        let (hit, _) = row.show(ui, t);
+        // UI-30: rows drag onto another row (child) or its top/bottom edge (before/after).
+        let dragged = ui.dnd_drag_source(egui::Id::unique(("page-tree-drag", id.0)), crate::wiki::PageDrag(id), |ui| row.show(ui, t));
+        let (hit, _) = dragged.inner;
+        if let Some(a) = crate::wiki::tree_drop(app, ui, t, dragged.response.rect, id, has_kids && !open) {
+            app.push(a);
+        }
         if hit.star {
             app.side.toggle(star);
         } else if hit.chevron {

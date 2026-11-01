@@ -1,9 +1,111 @@
-//! Wiki views: page view and editor (with conflict handling), version history, new page.
+//! Wiki views: page view and editor (with conflict handling), version history, new page;
+//! comments (`comments`), version diff (`diff`), templates (`templates`) and page tree moves
+//! (`tree`) (UI-27..30).
+
+pub(crate) mod comments;
+pub(crate) mod diff;
+pub(crate) mod templates;
+pub(crate) mod tree;
 
 use egui::{RichText, Ui};
-use serde_json::json;
+use serde_json::{Value, json};
 use trackcraft_core::Id;
 use trackcraft_markup::Doc;
+
+pub(crate) use tree::{PageDrag, tree_drop};
+
+/// An open wiki dialog (UI-29, UI-30).
+#[derive(Debug)]
+pub(crate) enum Dialog {
+    Copy(tree::CopyForm),
+    Move(tree::MoveForm),
+    SaveTemplate(templates::SaveForm),
+    /// A space's templates, by space key.
+    Templates(String),
+}
+
+/// Wiki view state beyond the editor (UI-27..30).
+#[derive(Debug, Default)]
+pub(crate) struct WikiUi {
+    pub comments: comments::CommentsUi,
+    pub diff: diff::DiffCache,
+    pub templates: templates::TemplateCache,
+    /// The template chosen in the new-page dialog (`None` is Blank).
+    pub template: Option<Value>,
+    pub dialog: Option<Dialog>,
+    /// Versions ticked in the history list for comparing.
+    pub compare: Vec<u32>,
+}
+
+impl WikiUi {
+    pub(crate) fn dialog_open(&self) -> bool {
+        self.dialog.is_some()
+    }
+
+    pub(crate) fn close_dialogs(&mut self) {
+        self.dialog = None;
+    }
+
+    /// The view changed: per-page state goes.
+    pub(crate) fn left_view(&mut self) {
+        self.comments = comments::CommentsUi::default();
+        self.compare.clear();
+    }
+}
+
+/// The `ui.newPage` and `ui.pageDialog` control requests (see `TrackApp::control`).
+pub(crate) fn control(app: &mut TrackApp, method: &str, p: &Value) -> Result<Value, String> {
+    let id = p.get("id").and_then(Value::as_u64).map(Id);
+    if method == "ui.newPage" {
+        let space = p.get("space").and_then(Value::as_str).ok_or("missing \"space\"")?;
+        let space = app.session.ws.space(space).map_err(|e| e.to_string())?.key.to_string();
+        let parent = p.get("parent").and_then(Value::as_u64).map(Id);
+        if let Some(pid) = parent {
+            app.session.ws.page(pid).map_err(|e| e.to_string())?;
+        }
+        app.new_page = Some(NewPageForm { space, parent, ..NewPageForm::default() });
+        app.wiki.template = p.get("template").filter(|v| !v.is_null()).cloned();
+        return Ok(json!({"ok": true}));
+    }
+    let id = id.ok_or("missing \"id\"")?;
+    let page = app.session.ws.page(id).map_err(|e| e.to_string())?.clone();
+    let kind = p.get("kind").and_then(Value::as_str).unwrap_or_default();
+    app.wiki.dialog = Some(match kind {
+        "copy" => Dialog::Copy(tree::CopyForm {
+            page: id,
+            title: format!("{} (copy)", page.title),
+            parent: None,
+            children: !app.session.ws.children(id).is_empty(),
+            error: None,
+        }),
+        "move" if page.parent.is_some() => Dialog::Move(tree::MoveForm { page: id, ..Default::default() }),
+        "move" => return Err("a space's home page can't move".into()),
+        "saveTemplate" => {
+            Dialog::SaveTemplate(templates::SaveForm { page: id, space: page.space.to_string(), name: page.title, ..Default::default() })
+        }
+        "templates" => Dialog::Templates(page.space.to_string()),
+        _ => return Err("\"kind\" is copy, move, saveTemplate or templates".into()),
+    });
+    Ok(json!({"ok": true}))
+}
+
+/// Draws the open wiki dialog, if any.
+pub(crate) fn dialogs(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
+    if app.new_page.is_none() {
+        app.wiki.template = None;
+    }
+    let Some(mut d) = app.wiki.dialog.take() else { return };
+    let open = match &mut d {
+        Dialog::Copy(f) => tree::copy_dialog(app, ctx, t, f),
+        Dialog::Move(f) => tree::move_dialog(app, ctx, t, f),
+        Dialog::SaveTemplate(f) => templates::save_dialog(app, ctx, t, f),
+        Dialog::Templates(space) => templates::manage_dialog(app, ctx, t, space),
+    };
+    // A dialog may have opened another one (none do today); the newer one wins.
+    if open && app.wiki.dialog.is_none() {
+        app.wiki.dialog = Some(d);
+    }
+}
 
 use crate::theme::Tokens;
 use crate::widgets::{card, empty_state, link_truncated};
@@ -48,7 +150,7 @@ fn lazy_doc(ui: &mut Ui, t: &Tokens, doc: &Doc, salt: (u64, u32), viewport: egui
 }
 use crate::{Action, NewPageForm, Then, TrackApp, View, icons, markup_view};
 
-fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
+pub(crate) fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     let ws = &app.session.ws;
     let Ok(page) = ws.page(id) else { return };
     let space_name = ws.spaces.get(&page.space).map(|s| s.name.clone()).unwrap_or_default();
@@ -88,6 +190,37 @@ fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     }
 }
 
+/// The page's More menu: copy, move, templates (UI-29, UI-30).
+fn more_menu(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &trackcraft_model::Page) {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 22.0), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 5.0, t.accent_soft);
+    }
+    icons::paint_more(ui.painter(), if resp.hovered() { t.text } else { t.muted }, rect.center());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "More page actions"));
+    let resp = resp.on_hover_text("More page actions");
+    let is_home = p.parent.is_none();
+    let id = p.id;
+    egui::Popup::menu(&resp).show(|ui| {
+        if ui.add_enabled(!is_home, egui::Button::new("Move to\u{2026}")).clicked() {
+            app.wiki.dialog = Some(Dialog::Move(tree::MoveForm { page: id, ..Default::default() }));
+        }
+        if ui.button("Copy\u{2026}").clicked() {
+            let kids = !app.session.ws.children(id).is_empty();
+            app.wiki.dialog =
+                Some(Dialog::Copy(tree::CopyForm { page: id, title: format!("{} (copy)", p.title), parent: None, children: kids, error: None }));
+        }
+        ui.separator();
+        if ui.button("Save as template\u{2026}").clicked() {
+            app.wiki.dialog =
+                Some(Dialog::SaveTemplate(templates::SaveForm { page: id, space: p.space.to_string(), name: p.title.clone(), ..Default::default() }));
+        }
+        if ui.button("Space templates\u{2026}").clicked() {
+            app.wiki.dialog = Some(Dialog::Templates(p.space.to_string()));
+        }
+    });
+}
+
 pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     let Ok(p) = app.session.ws.page(id).cloned() else {
         ui.label("This page no longer exists.");
@@ -101,9 +234,12 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     let now = app.session.now();
     let author = app.session.ws.users.get(&p.author).map(|u| u.display_name.clone()).unwrap_or_else(|| p.author.clone());
     let is_home = p.parent.is_none();
+    let n_comments = comments::count(&p);
+    let mut to_comments = false;
     // Buttons first (right to left), so a 255-character title truncates instead (UI-6).
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            more_menu(app, ui, t, &p); // UI-29, UI-30
             if !is_home && ui.small_button("Delete").on_hover_text("Delete this page and its children").clicked() {
                 app.push(Action::Run {
                     id: "page.delete",
@@ -124,6 +260,10 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
             {
                 app.push(Action::EditPage(id));
             }
+            // UI-27: the comment count; clicking scrolls to the comments.
+            if comments::badge(ui, t, n_comments).on_hover_text("Go to the comments").clicked() {
+                to_comments = true;
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add(egui::Label::new(RichText::new(&p.title).size(26.0).strong()).truncate());
             });
@@ -140,40 +280,69 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     // `e` edits the page, `c` adds a child, `l` edits labels: see `keys.rs`.
     let kids: Vec<(Id, String)> = app.session.ws.children(id).iter().map(|c| (c.id, c.title.clone())).collect();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, viewport| {
-        ui.set_max_width(820.0);
-        // UI-6: empty pages say what to do.
-        if p.body.is_empty() {
-            if is_home && kids.is_empty() {
-                if empty_state(
-                    ui,
-                    t,
-                    "This space has no pages yet",
-                    "Write the first page; it appears in the sidebar under the space.",
-                    Some("Create page"),
-                ) {
-                    app.push(Action::OpenNewPage { space: p.space.to_string(), parent: None });
-                }
-            } else if is_home {
-                empty_state(ui, t, "", "This is the space's home page. Its pages are listed below.", None);
-            } else if empty_state(ui, t, "This page is empty", "Edit it to add text (E).", Some("Edit page")) {
-                app.push(Action::EditPage(id));
-            }
-        } else {
-            lazy_doc(ui, t, &p.body, (id.0, p.version), viewport);
-        }
-        if !kids.is_empty() {
-            ui.add_space(18.0);
-            card(ui, t, "Child pages", |ui| {
-                for (cid, title) in kids {
-                    ui.horizontal(|ui| {
-                        icons::page(ui, t, 16.0);
-                        if link_truncated(ui, title).clicked() {
-                            app.push(Action::Nav(View::Page(cid)));
+        let avail = ui.available_width();
+        // UI-27: a margin for inline comments beside the body when there is room, else below.
+        let wide = avail >= 640.0 + comments::MARGIN_W;
+        let body_w = if wide { (avail - comments::MARGIN_W - comments::GUTTER).min(820.0) } else { avail.min(820.0) };
+        let mut tops = Vec::new();
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(body_w);
+                // UI-6: empty pages say what to do.
+                if p.body.is_empty() {
+                    if is_home && kids.is_empty() {
+                        if empty_state(
+                            ui,
+                            t,
+                            "This space has no pages yet",
+                            "Write the first page; it appears in the sidebar under the space.",
+                            Some("Create page"),
+                        ) {
+                            app.push(Action::OpenNewPage { space: p.space.to_string(), parent: None });
                         }
-                    });
+                    } else if is_home {
+                        empty_state(ui, t, "", "This is the space's home page. Its pages are listed below.", None);
+                    } else if empty_state(ui, t, "This page is empty", "Edit it to add text (E).", Some("Edit page")) {
+                        app.push(Action::EditPage(id));
+                    }
+                } else if p.body.blocks.len() > LAZY_BLOCKS {
+                    lazy_doc(ui, t, &p.body, (id.0, p.version), viewport);
+                } else {
+                    let gutter = ui.max_rect().left() + body_w + 6.0;
+                    tops = comments::body_blocks(app, ui, t, &p, gutter);
                 }
             });
-        }
+            if wide {
+                ui.add_space(comments::GUTTER);
+                ui.vertical(|ui| {
+                    ui.set_width(comments::MARGIN_W);
+                    comments::margin(app, ui, t, &p, &tops);
+                });
+            }
+        });
+        ui.vertical(|ui| {
+            ui.set_width(body_w);
+            if !wide {
+                comments::margin(app, ui, t, &p, &[]);
+            }
+            if !kids.is_empty() {
+                ui.add_space(18.0);
+                card(ui, t, "Child pages", |ui| {
+                    for (cid, title) in kids {
+                        ui.horizontal(|ui| {
+                            icons::page(ui, t, 16.0);
+                            if link_truncated(ui, title).clicked() {
+                                app.push(Action::Nav(View::Page(cid)));
+                            }
+                        });
+                    }
+                });
+            }
+            let r = ui.scope(|ui| comments::footer(app, ui, t, &p)).response;
+            if to_comments {
+                ui.scroll_to_rect(r.rect, Some(egui::Align::TOP));
+            }
+        });
     });
 }
 
@@ -251,6 +420,14 @@ pub(crate) fn history(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
             if ui.button("Back to page").clicked() {
                 app.push(Action::Nav(View::Page(id)));
             }
+            // UI-28: compare the two ticked versions.
+            if let [a, b] = app.wiki.compare[..] {
+                if ui.add(egui::Button::new(RichText::new("Compare selected").color(t.on_accent).strong()).fill(t.accent)).clicked() {
+                    app.push(Action::Nav(View::PageDiff(id, a.min(b), a.max(b))));
+                }
+            } else {
+                ui.add_enabled(false, egui::Button::new("Compare selected")).on_disabled_hover_text("Tick two versions to compare them");
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add(egui::Label::new(RichText::new(format!("History of “{}”", p.title)).size(22.0).strong()).truncate());
             });
@@ -270,22 +447,39 @@ pub(crate) fn history(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
         ui.vertical(|ui| {
             ui.set_width(avail * 0.45);
             card(ui, t, "", |ui| {
-                egui::Grid::new("versions").num_columns(4).spacing([12.0, 8.0]).striped(true).show(ui, |ui| {
+                egui::Grid::new("versions").num_columns(5).spacing([12.0, 8.0]).striped(true).show(ui, |ui| {
                     for (v, _title, author, at, msg, _) in &rows {
                         let current = *v == p.version;
                         let sel = app.history_preview == Some(*v) || (app.history_preview.is_none() && current);
+                        // UI-28: tick two versions to compare (a third tick replaces the oldest).
+                        let mut on = app.wiki.compare.contains(v);
+                        if ui.checkbox(&mut on, RichText::new("Compare").size(11.5)).on_hover_text(format!("Compare v{v}")).changed() {
+                            app.wiki.compare.retain(|x| x != v);
+                            if on {
+                                app.wiki.compare.push(*v);
+                                if app.wiki.compare.len() > 2 {
+                                    app.wiki.compare.remove(0);
+                                }
+                            }
+                        }
                         if ui.selectable_label(sel, format!("v{v}{}", if current { " (current)" } else { "" })).clicked() {
                             app.history_preview = Some(*v);
                         }
                         ui.label(format!("{} · {}", name(author), crate::ago(now, *at)));
                         ui.label(RichText::new(msg).color(t.muted).italics());
-                        if !current && ui.small_button("Restore").clicked() {
-                            acts.push(Action::Run {
-                                id: "page.restore",
-                                params: json!({"id": id.0, "version": v}),
-                                then: Then::Toast(format!("Restored version {v} as a new version")),
-                            });
-                        }
+                        ui.horizontal(|ui| {
+                            // UI-28
+                            if *v > 1 && ui.small_button("Compare with previous").clicked() {
+                                acts.push(Action::Nav(View::PageDiff(id, v - 1, *v)));
+                            }
+                            if !current && ui.small_button("Restore").clicked() {
+                                acts.push(Action::Run {
+                                    id: "page.restore",
+                                    params: json!({"id": id.0, "version": v}),
+                                    then: Then::Toast(format!("Restored version {v} as a new version")),
+                                });
+                            }
+                        });
                         ui.end_row();
                     }
                 });
@@ -317,8 +511,16 @@ pub(crate) fn new_page_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Token
     let mut submit = false;
     let parent_title = form.parent.and_then(|p| app.session.ws.pages.get(&p)).map(|p| p.title.clone());
     let space_name = app.session.ws.space(&form.space).map(|s| s.name.clone()).unwrap_or_default();
+    // UI-29: templates for this space; the chosen one fills the body (and a blank title).
+    let list = templates::list(app, &form.space);
+    let mut chosen = app.wiki.template.take();
+    let today = app.session.now().format("%Y-%m-%d").to_string();
+    let hint = match templates::suggested_title(&list, chosen.as_ref()) {
+        s if s.trim().is_empty() => "Title".to_string(),
+        s => format!("Title (leave blank for “{}”)", s.replace("{date}", &today).trim()),
+    };
     let modal = egui::Modal::new(egui::Id::unique("new-page")).show(ctx, |ui| {
-        ui.set_width(420.0);
+        ui.set_width(760.0);
         ui.heading("New page");
         ui.label(
             RichText::new(match &parent_title {
@@ -328,7 +530,8 @@ pub(crate) fn new_page_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Token
             .color(t.muted),
         );
         ui.add_space(8.0);
-        let r = ui.add(egui::TextEdit::singleline(&mut form.title).hint_text("Title").desired_width(f32::INFINITY));
+        let l = ui.label(RichText::new("Title").color(t.muted).size(12.0).strong());
+        let r = ui.add(egui::TextEdit::singleline(&mut form.title).hint_text(hint.as_str()).desired_width(f32::INFINITY)).labelled_by(l.id);
         if form.title.is_empty() && ui.memory(|m| m.focused().is_none()) {
             r.request_focus();
         }
@@ -338,6 +541,8 @@ pub(crate) fn new_page_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Token
         if let Some(e) = &form.error {
             ui.label(RichText::new(e).color(t.danger));
         }
+        ui.add_space(8.0);
+        templates::picker(ui, t, &list, &mut chosen, &today);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.add(egui::Button::new(RichText::new("Create").color(t.on_accent).strong()).fill(t.accent)).clicked() {
@@ -351,10 +556,19 @@ pub(crate) fn new_page_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Token
     if modal.should_close() {
         close = true;
     }
+    app.wiki.template = chosen.clone();
     if submit {
         let mut p = json!({"space": form.space, "title": form.title});
         if let Some(parent) = form.parent {
             p["parent"] = json!(parent.0);
+        }
+        if let Some(tpl) = chosen {
+            p["template"] = tpl;
+            if form.title.trim().is_empty()
+                && let Some(o) = p.as_object_mut()
+            {
+                o.remove("title");
+            }
         }
         match app.session.run("page.create", &p) {
             Ok(v) => {

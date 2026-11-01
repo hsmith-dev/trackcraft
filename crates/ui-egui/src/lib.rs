@@ -201,6 +201,8 @@ pub struct TrackApp {
     forward: Vec<View>,
     pub(crate) recent: Vec<View>,
     pub(crate) side: directory::SideUi,
+    /// Wiki comments, diff, templates, tree copy/move state (UI-27..30).
+    pub(crate) wiki: wiki::WikiUi,
 }
 
 impl TrackApp {
@@ -248,6 +250,7 @@ impl TrackApp {
             forward: vec![],                        // UI-8
             recent: vec![],                         // UI-8
             side: directory::SideUi::default(),     // UI-8
+            wiki: wiki::WikiUi::default(),          // UI-27..30
         }
     }
 
@@ -331,6 +334,7 @@ impl TrackApp {
         self.visited(); // UI-8
         self.issue_ui = IssueUi::default();
         self.history_preview = None;
+        self.wiki.left_view(); // UI-27..30
         if !self.page_edit.as_ref().is_some_and(|e| self.view == View::Page(e.id)) {
             self.page_edit = None;
         }
@@ -384,7 +388,8 @@ impl TrackApp {
             || self.page_labels.is_some()
             || self.sprint_dialog.is_some()
             || self.backlog.move_pick.is_some()
-            || self.side.dialog.is_some(); // UI-8
+            || self.side.dialog.is_some() // UI-8
+            || self.wiki.dialog_open(); // UI-27..30
         let modal = dialog || self.help || guarding;
         let gate = keys::Gate { typing, modal, help_only: self.help && !dialog && !guarding, guarding };
         let injected = std::mem::take(&mut self.injected);
@@ -421,6 +426,7 @@ impl TrackApp {
                     self.sprint_dialog = None;
                     self.backlog.move_pick = None;
                     self.side.dialog = None; // UI-8
+                    self.wiki.close_dialogs(); // UI-27..30
                     self.help = false;
                 } else if matches!(self.view, View::Issue(_)) {
                     keys::cancel_issue_edits(self);
@@ -456,6 +462,7 @@ impl TrackApp {
                 View::SprintBoard(p, id) => issues::sprint_board(self, ui, &t, &p, id), // UI-12
                 View::Projects => directory::projects(self, ui, &t),                    // UI-8
                 View::Spaces => directory::spaces(self, ui, &t),                        // UI-8
+                View::PageDiff(id, from, to) => wiki::diff::view(self, ui, &t, id, from, to), // UI-27..30
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -467,6 +474,7 @@ impl TrackApp {
         backlog::move_picker(self, ui.ctx(), &t); // UI-11
         sprints::dialog(self, ui.ctx(), &t); // UI-12
         directory::dialog(self, ui.ctx(), &t); // UI-8
+        wiki::dialogs(self, ui.ctx(), &t); // UI-27..30
         toast::show(self, ui.ctx(), &t); // UI-5
         self.apply_pending();
     }
@@ -610,6 +618,7 @@ impl TrackApp {
             View::Board(p) => !self.session.ws.projects.contains_key(p),
             View::Backlog(p) => !self.session.ws.projects.contains_key(p), // UI-11
             View::SprintBoard(_, id) => !self.session.ws.sprints.contains_key(id), // UI-12
+            View::PageDiff(id, ..) => !self.session.ws.pages.contains_key(id), // UI-27..30
             _ => false,
         };
         if gone {
@@ -636,6 +645,10 @@ impl TrackApp {
     /// - `ui.back` · `ui.forward`: walk the navigation history (UI-8; `"force"` as for navigate)
     /// - `ui.sidebar` `{"filter": "text", "star": "project:LUME"|"space:ENG"|"page:12"|"filter:All issues", "on": bool}`:
     ///   sets the sidebar filter and/or stars an item (UI-8)
+    /// - `ui.newPage` `{"space": "ENG", "parent": 24, "template": "how-to"}`: opens the new-page
+    ///   dialog with a template chosen (UI-29)
+    /// - `ui.pageDialog` `{"kind": "copy"|"move"|"saveTemplate"|"templates", "id": 24}`: opens a
+    ///   page dialog (UI-29, UI-30)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -729,6 +742,8 @@ impl TrackApp {
                 }
                 Ok(json!({"ok": true}))
             }
+            // UI-27..30
+            "ui.newPage" | "ui.pageDialog" => wiki::control(self, method, &p),
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),
         }
     }

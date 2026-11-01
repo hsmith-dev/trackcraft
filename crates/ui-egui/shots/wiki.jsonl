@@ -1,3 +1,4 @@
+{"method":"ui.theme","params":{"dark":false}}
 {"method":"ui.navigate","params":{"view":"page","id":22}}
 {"shot":"/tmp/tc-shots/wiki-space-home.png"}
 {"method":"ui.navigate","params":{"view":"page","id":24}}
@@ -6,6 +7,41 @@
 {"shot":"/tmp/tc-shots/wiki-history.png"}
 {"method":"ui.editPage","params":{"id":24}}
 {"shot":"/tmp/tc-shots/wiki-editor.png"}
+{"method":"engine.execute","params":{"command":"page.edit","params":{"id":24,"message":"Storage and sync sections","body":"The app is a thin client over a local note store that syncs in the background.\n\n## Storage\n\nNotes live in a single file per workspace, written atomically so a crash never leaves half a note.\n\n## Sync\n\nChanges go out as small operations and merge on the server in the order they arrive."}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Is the single file a problem for very large workspaces?","anchor":{"block":2,"start":0,"end":80,"quote":"Notes live in a single file per workspace, written atomically so a crash never l"}}}}
+{"method":"engine.execute","params":{"command":"page.edit","params":{"id":24,"title":"Architecture at a glance","message":"Signed operations","body":"The app is a thin client over a local note store that syncs in the background.\n\n## Storage\n\nNotes live in one file per workspace. Saves write a temporary file and rename it.\n\n## Sync\n\nChanges go out as small signed operations and merge on the server in the order they arrive.\n\nConflicts keep both versions side by side."}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Could we link the protocol page here?","anchor":{"block":0,"start":0,"end":78,"quote":"The app is a thin client over a local note store that syncs in the background."}}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Who signs them, the device or the user?","anchor":{"block":4,"start":0,"end":80,"quote":"Changes go out as small signed operations and merge on the server in the order t"}}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Nice summary. I'd add a **diagram** of the sync loop."}}}
+{"method":"engine.execute","params":{"command":"page.comment","params":{"id":24,"body":"Agreed, I can draw one this week.","parent":39}}}
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"ui.navigate","params":{"view":"page","id":22,"force":true}}
+{"method":"ui.navigate","params":{"view":"page","id":24}}
+{"shot":"/tmp/tc-shots/wiki-comments.png"}
+{"method":"ui.navigate","params":{"view":"diff","id":24,"from":2,"to":3}}
+{"shot":"/tmp/tc-shots/wiki-diff.png"}
+{"method":"ui.newPage","params":{"space":"ENG","parent":24,"template":"decision-record"}}
+{"shot":"/tmp/tc-shots/wiki-new-from-template.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"ui.navigate","params":{"view":"page","id":25}}
+{"method":"ui.pageDialog","params":{"kind":"copy","id":24}}
+{"shot":"/tmp/tc-shots/wiki-copy.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"ui.pageDialog","params":{"kind":"move","id":26}}
+{"shot":"/tmp/tc-shots/wiki-move.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
 {"method":"ui.theme","params":{"dark":true}}
+{"method":"engine.execute","params":{"command":"template.create","params":{"space":"ENG","name":"Incident review","description":"What broke, why, and what we change.","body":"## What happened\n\n## Why\n\n## What we change"}}}
+{"method":"ui.pageDialog","params":{"kind":"templates","id":24}}
+{"shot":"/tmp/tc-shots/wiki-templates-dark.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"ui.navigate","params":{"view":"page","id":24}}
+{"shot":"/tmp/tc-shots/wiki-comments-dark.png"}
+{"method":"ui.navigate","params":{"view":"diff","id":24,"from":2,"to":3}}
+{"shot":"/tmp/tc-shots/wiki-diff-dark.png"}
 {"method":"ui.navigate","params":{"view":"page","id":25}}
 {"shot":"/tmp/tc-shots/wiki-page-dark.png"}

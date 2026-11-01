@@ -270,6 +270,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Page(id) if !app.page_edit.as_ref().is_some_and(|e| e.id == *id) => Some(Scope::Page),
         View::Page(_) | View::Home | View::PageHistory(_) => None,
         View::Projects | View::Spaces => None, // UI-8
+        View::PageDiff(..) => None,            // UI-28
     }
 }
 
