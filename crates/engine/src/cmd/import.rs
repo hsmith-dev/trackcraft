@@ -20,6 +20,12 @@ fn import(s: &mut Session, p: &Value) -> CmdResult {
     let space = params::opt_str(p, "space")?;
     let now = s.now();
     let user = s.user.clone();
+    let known: Vec<String> = s.ws.users.keys().cloned().collect();
     let report = import_path(&mut s.ws, kind, &path, space, Actor { user: &user, now }).map_err(|e| e.to_string())?;
+    // People an import adds are members, not admins.
+    let added: Vec<String> = s.ws.users.keys().filter(|u| !known.contains(u)).cloned().collect();
+    for u in added {
+        s.ws.set_workspace_role(&u, trackcraft_model::WorkspaceRole::Member).map_err(|e| e.to_string())?;
+    }
     Ok(report.to_json())
 }

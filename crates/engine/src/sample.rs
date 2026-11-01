@@ -13,6 +13,11 @@ pub fn workspace(now: Timestamp) -> Workspace {
     }
     let _ = w.create_project("LUME", "Lume Mobile App", ProjectKind::Software, Some("riley"));
     let _ = w.create_project("OPS", "Office Operations", ProjectKind::Business, Some("jo"));
+    // Riley administers the workspace; Sam and Jo are members, Jo administers OPS.
+    for u in ["sam", "jo"] {
+        let _ = w.set_workspace_role(u, trackcraft_model::WorkspaceRole::Member);
+    }
+    let _ = w.set_project_role("OPS", "jo", Some(trackcraft_model::ProjectRole::Administrator));
 
     let ago = |d: i64| now - Duration::days(d);
     let issue = |project: &str, ty: &str, summary: &str, prio: &str, who: Option<&str>, labels: &[&str], points: Option<f64>| NewIssue {

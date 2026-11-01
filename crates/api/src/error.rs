@@ -70,8 +70,10 @@ impl ApiError {
         ApiError::new(flavor, StatusCode::INTERNAL_SERVER_ERROR, message)
     }
 
-    /// Maps an engine command error to a status: missing things are 404, a stale page version is
-    /// 409, everything else the caller sent is 400.
+    /// Maps an engine command error to a status: missing things are 404 (and so is anything the
+    /// caller may not browse: the engine words it as missing), a permission the caller lacks on
+    /// something they can see is 403, a stale page version is 409, everything else the caller
+    /// sent is 400.
     pub fn from_command(flavor: Flavor, message: String) -> Self {
         const MISSING: &[&str] = &[
             "no issue ",
@@ -85,6 +87,8 @@ impl ApiError {
         ];
         let status = if MISSING.iter().any(|m| message.starts_with(m)) {
             StatusCode::NOT_FOUND
+        } else if message.starts_with(trackcraft_engine::authz::DENIED) {
+            StatusCode::FORBIDDEN
         } else if message.starts_with("the page changed") {
             StatusCode::CONFLICT
         } else {

@@ -95,6 +95,8 @@ fn user_add(s: &mut Session, p: &Value) -> CmdResult {
     let id = params::str(p, "id")?;
     let name = params::opt_str(p, "name")?.unwrap_or(id);
     s.ws.add_user(id, name).map_err(|e| e.to_string())?;
+    // New users are members (users with no role, from files older than permissions, are admins).
+    s.ws.set_workspace_role(id.trim(), trackcraft_model::WorkspaceRole::Member).map_err(|e| e.to_string())?;
     Ok(json!({"id": id.trim()}))
 }
 

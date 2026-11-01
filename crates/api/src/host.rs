@@ -93,11 +93,13 @@ pub struct Hosted {
 
 impl Hosted {
     /// `path`: where it is saved (`None` = in memory only, e.g. tests).
-    /// The session's journal is switched on here (every change becomes a sync revision).
+    /// The session's journal is switched on here (every change becomes a sync revision), and
+    /// so are permissions (`Session::set_enforce`; `docs/permissions.md`).
     pub fn new(name: &str, mut session: Session, path: Option<PathBuf>) -> Self {
         if session.journal().is_none() {
             session.enable_journal(Journal::new(JOURNAL_MAX_ENTRIES, JOURNAL_MAX_BYTES));
         }
+        session.set_enforce(true);
         let rev = session.revision();
         Hosted { name: name.to_string(), path, session: Mutex::new(session), saved: AtomicU64::new(rev), epoch: new_epoch() }
     }

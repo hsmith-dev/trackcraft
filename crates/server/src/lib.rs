@@ -221,4 +221,6 @@ async fn log(State(enabled): State<bool>, req: Request, next: Next) -> Response 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_access;
+#[cfg(test)]
 mod tests_sync;

@@ -17,6 +17,7 @@ use serde_json::Value;
 use trackcraft_model::{Timestamp, Workspace};
 pub use trackcraft_sync_proto as proto;
 
+use crate::authz::{Delivery, Scope};
 use crate::{Mode, Session};
 
 use proto::{Entry, Origin};
@@ -33,10 +34,37 @@ pub fn ids_next(ws: &Workspace) -> u64 {
     serde_json::to_value(&ws.ids).ok().and_then(|v| v.get("next").and_then(Value::as_u64)).unwrap_or(0)
 }
 
+/// The placeholder a sync stream sends instead of an entry the user may not see (M4.3,
+/// `docs/permissions.md`): it carries only `rev`, `at`, `idsBefore` and `params.idsAfter`.
+/// [`Session::apply_remote`] advances the revision and the id counter and changes nothing else.
+pub const SKIP_COMMAND: &str = "sync.skip";
+
+/// What the journal keeps beside each entry for per-user delivery (never sent).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Meta {
+    /// What the command touched, captured before it ran.
+    pub scope: Scope,
+    /// The id counter after it (a skip placeholder's `idsAfter`).
+    pub ids_after: u64,
+}
+
+/// The `sync.skip` placeholder for `e`.
+pub fn skip_entry(e: &Entry, meta: &Meta) -> Entry {
+    Entry {
+        rev: e.rev,
+        command: SKIP_COMMAND.to_string(),
+        params: serde_json::json!({"idsAfter": meta.ids_after}),
+        actor: String::new(),
+        at: e.at,
+        ids_before: e.ids_before,
+        origin: None,
+    }
+}
+
 /// A bounded ring of applied entries.
 #[derive(Debug, Clone)]
 pub struct Journal {
-    entries: VecDeque<(Entry, usize)>,
+    entries: VecDeque<(Entry, usize, Meta)>,
     bytes: usize,
     max_entries: usize,
     max_bytes: usize,
@@ -50,7 +78,7 @@ impl Journal {
         Journal { entries: VecDeque::new(), bytes: 0, max_entries: max_entries.max(1), max_bytes, base: 0, clients: BTreeMap::new() }
     }
 
-    fn push(&mut self, e: Entry) {
+    fn push(&mut self, e: Entry, meta: Meta) {
         let size = serde_json::to_vec(&e.params).map(|v| v.len()).unwrap_or(0).saturating_add(e.command.len()).saturating_add(128);
         if let Some(o) = &e.origin {
             if !self.clients.contains_key(&o.client)
@@ -61,11 +89,11 @@ impl Journal {
             }
             self.clients.insert(o.client.clone(), o.seq);
         }
-        self.entries.push_back((e, size));
+        self.entries.push_back((e, size, meta));
         self.bytes = self.bytes.saturating_add(size);
         while self.entries.len() > self.max_entries || (self.bytes > self.max_bytes && self.entries.len() > 1) {
             match self.entries.pop_front() {
-                Some((old, s)) => {
+                Some((old, s, _)) => {
                     self.base = old.rev;
                     self.bytes = self.bytes.saturating_sub(s);
                 }
@@ -88,7 +116,7 @@ impl Journal {
     }
 
     pub fn last(&self) -> Option<&Entry> {
-        self.entries.back().map(|(e, _)| e)
+        self.entries.back().map(|(e, _, _)| e)
     }
 
     /// The highest `seq` applied for `client`.
@@ -139,18 +167,25 @@ pub(crate) struct SyncState {
 
 impl SyncState {
     /// A local change: with a journal, it becomes the next revision.
-    pub(crate) fn record(&mut self, id: &str, params: &Value, actor: &str, at: Timestamp, ids_before: u64) {
+    pub(crate) fn journaling(&self) -> bool {
+        self.journal.is_some()
+    }
+
+    pub(crate) fn record(&mut self, id: &str, params: &Value, actor: &str, at: Timestamp, ids_before: u64, meta: Meta) {
         let Some(j) = self.journal.as_mut() else { return };
         self.rev = self.rev.saturating_add(1);
-        j.push(Entry {
-            rev: self.rev,
-            command: id.to_string(),
-            params: params.clone(),
-            actor: actor.to_string(),
-            at,
-            ids_before,
-            origin: self.origin.clone(),
-        });
+        j.push(
+            Entry {
+                rev: self.rev,
+                command: id.to_string(),
+                params: params.clone(),
+                actor: actor.to_string(),
+                at,
+                ids_before,
+                origin: self.origin.clone(),
+            },
+            meta,
+        );
     }
 }
 
@@ -179,6 +214,11 @@ impl Session {
 
     /// Entries after `since`, at most `limit`.
     pub fn journal_since(&self, since: u64, limit: usize) -> Result<Vec<Entry>, SinceError> {
+        Ok(self.journal_since_meta(since, limit)?.into_iter().map(|(e, _)| e).collect())
+    }
+
+    /// Entries after `since` with what each touched, at most `limit` (per-user streams).
+    pub fn journal_since_meta(&self, since: u64, limit: usize) -> Result<Vec<(Entry, Meta)>, SinceError> {
         let j = self.sync.journal.as_ref().ok_or(SinceError::TooOld { oldest: self.sync.rev })?;
         if since > self.sync.rev {
             return Err(SinceError::Future { rev: self.sync.rev });
@@ -186,7 +226,12 @@ impl Session {
         if since < j.base {
             return Err(SinceError::TooOld { oldest: j.base });
         }
-        Ok(j.entries.iter().map(|(e, _)| e).filter(|e| e.rev > since).take(limit).cloned().collect())
+        Ok(j.entries.iter().filter(|(e, _, _)| e.rev > since).take(limit).map(|(e, _, m)| (e.clone(), m.clone())).collect())
+    }
+
+    /// What `user` is told about an entry with `scope` ([`crate::authz::delivery`]).
+    pub fn delivery(&self, user: &str, scope: &Scope) -> Delivery {
+        crate::authz::delivery(&self.ws, user, scope)
     }
 
     /// Puts the workspace back and forgets journal entries after `rev` (a multi-command request
@@ -195,8 +240,8 @@ impl Session {
         self.ws = ws;
         if rev < self.sync.rev {
             if let Some(j) = self.sync.journal.as_mut() {
-                while j.entries.back().is_some_and(|(e, _)| e.rev > rev) {
-                    if let Some((_, s)) = j.entries.pop_back() {
+                while j.entries.back().is_some_and(|(e, _, _)| e.rev > rev) {
+                    if let Some((_, s, _)) = j.entries.pop_back() {
                         j.bytes = j.bytes.saturating_sub(s);
                     }
                 }
@@ -232,12 +277,28 @@ impl Session {
     /// observer. Returns the result and whether the workspace changed. [`crate::LOCAL_ONLY`]
     /// commands are refused.
     pub fn replay(&mut self, command: &str, params: &Value, actor: &str, at: Timestamp) -> Result<(Value, bool), String> {
+        if command == SKIP_COMMAND {
+            return self.skip(params);
+        }
         let prev_user = std::mem::replace(&mut self.user, actor.to_string());
         let prev_pin = self.pinned.replace(at);
         let r = self.exec(command, params, Mode::Replay);
         self.pinned = prev_pin;
         self.user = prev_user;
         r
+    }
+
+    /// A `sync.skip` placeholder: something this user can't see changed; only the id counter
+    /// moves (to `params.idsAfter`, never backwards).
+    fn skip(&mut self, params: &Value) -> Result<(Value, bool), String> {
+        let after = params.get("idsAfter").and_then(Value::as_u64).ok_or("sync.skip needs \"idsAfter\"")?;
+        if after < ids_next(&self.ws) {
+            return Err("sync.skip would move the id counter backwards".into());
+        }
+        let ids = serde_json::from_value(serde_json::json!({"next": after})).map_err(|e| e.to_string())?;
+        self.ws.ids = ids;
+        self.bump();
+        Ok((Value::Null, true))
     }
 
     /// Applies the server's next journal entry. On success the session is at `entry.rev`; any

@@ -21,6 +21,9 @@ commands:
   workspace create NAME [--sample] [--user ID] [--data DIR]
         create DIR/NAME.track (the sample workspace, or empty with ID as its first user)
   workspace list [--data DIR]
+  user role --user ID --role admin|member|viewer [--workspace NAME] [--data DIR]
+        set a workspace role in NAME.track (run while the server is stopped; online, admins
+        use the access.setWorkspaceRole command). See docs/permissions.md.
 
 Clients authenticate with `Authorization: Bearer <token>` or Basic `<user id or email>:<token>`.
 See docs/server.md.
@@ -118,6 +121,13 @@ fn run(a: &Args) -> Result<(), String> {
             for (name, path) in workspaces::list(&a.data()).map_err(|e| e.to_string())? {
                 println!("{name}\t{}", path.display());
             }
+            Ok(())
+        }
+        (Some("user"), Some("role")) => {
+            let user = a.get("--user").ok_or("user role needs --user ID")?;
+            let role = a.get("--role").ok_or("user role needs --role admin|member|viewer")?;
+            let path = workspaces::set_role(&a.data(), a.get("--workspace"), user, role).map_err(|e| e.to_string())?;
+            println!("{user} is now {} in {}", role.trim().to_ascii_lowercase(), path.display());
             Ok(())
         }
         _ => {

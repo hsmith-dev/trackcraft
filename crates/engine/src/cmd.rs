@@ -1,5 +1,6 @@
 //! The command registry, one module per area.
 
+mod access;
 mod agile;
 mod file;
 mod import;
@@ -15,5 +16,6 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(agile::commands());
     v.extend(wiki::commands());
     v.extend(import::commands());
+    v.extend(access::commands());
     v
 }

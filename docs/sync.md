@@ -1,6 +1,6 @@
 # Live sync
 
-> **Status:** 2026-10-31 · M4.2 — desktop clients edit a server workspace live.
+> **Status:** 2026-10-31 · M4.3 — per-user filtering of snapshots and events; M4.2 desktop clients edit a server workspace live.
 
 Several desktop clients (and every REST/MCP caller) edit one server-hosted workspace and see each
 other's changes as they happen. The server is authoritative; clients apply their own commands
@@ -109,8 +109,14 @@ reached at start) and returns the `Session` the UI edits plus the `Remote` that 
   reported) rather than merged. Three-way page merge is later work.
 - Snapshots are whole workspaces: fine for team-sized workspaces, not for huge ones (deltas from
   the store are later work). The client holds two copies of the workspace in memory.
-- Permissions are workspace membership only (as for the REST API); a user removed while
-  streaming keeps the open stream until it reconnects.
+- **Per-user streams** ([`permissions.md`](permissions.md#live-sync)): the snapshot is the
+  user's filtered view; each entry is sent as is, replaced by a `sync.skip` placeholder (only
+  `rev`, `at`, `idsBefore`, `params.idsAfter` — `apply_remote` moves the revision and id
+  counter), or answered with `resync` when the user's copy can't follow by replay (an access
+  change, an entry mixing visible and hidden things, a page-tree change in a space with pages
+  hidden from them). Admins get every entry. The journal keeps each entry's *scope* (what it
+  touched, taken before it ran) beside it for this; scopes are never sent. Placeholders leak
+  timing and id counts of hidden activity — see the leak list there.
 - Browsers' `EventSource` can't set `Authorization`: the web client needs a cookie or a
   short-lived stream token (later work, with the web client).
 
