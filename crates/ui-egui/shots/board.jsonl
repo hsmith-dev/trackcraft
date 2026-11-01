@@ -1,0 +1,8 @@
+{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}
+{"shot":"/tmp/tc-shots/board.png"}
+{"method":"ui.key","params":{"key":"ArrowRight"}}
+{"method":"ui.key","params":{"key":"j"}}
+{"shot":"/tmp/tc-shots/board-selected.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"board","project":"OPS"}}
+{"shot":"/tmp/tc-shots/board-ops-dark.png"}

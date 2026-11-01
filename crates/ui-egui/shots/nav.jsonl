@@ -1,0 +1,6 @@
+{"shot":"/tmp/tc-shots/nav-home.png"}
+{"method":"ui.palette"}
+{"shot":"/tmp/tc-shots/nav-palette.png"}
+{"method":"ui.palette"}
+{"method":"ui.theme","params":{"dark":true}}
+{"shot":"/tmp/tc-shots/nav-home-dark.png"}

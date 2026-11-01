@@ -1,0 +1,13 @@
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"shot":"/tmp/tc-shots/issue.png"}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-4"}}
+{"shot":"/tmp/tc-shots/issue-epic.png"}
+{"method":"ui.key","params":{"key":"e"}}
+{"shot":"/tmp/tc-shots/issue-edit-description.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.create","params":{"project":"LUME"}}
+{"shot":"/tmp/tc-shots/issue-create.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"shot":"/tmp/tc-shots/issue-dark.png"}

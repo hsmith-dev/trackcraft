@@ -1,0 +1,11 @@
+{"method":"ui.navigate","params":{"view":"page","id":22}}
+{"shot":"/tmp/tc-shots/wiki-space-home.png"}
+{"method":"ui.navigate","params":{"view":"page","id":24}}
+{"shot":"/tmp/tc-shots/wiki-page.png"}
+{"method":"ui.navigate","params":{"view":"history","id":24}}
+{"shot":"/tmp/tc-shots/wiki-history.png"}
+{"method":"ui.editPage","params":{"id":24}}
+{"shot":"/tmp/tc-shots/wiki-editor.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"page","id":25}}
+{"shot":"/tmp/tc-shots/wiki-page-dark.png"}
