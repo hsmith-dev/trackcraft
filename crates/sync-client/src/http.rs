@@ -1,39 +1,115 @@
-//! A minimal blocking HTTP/1.1 client over `std::net::TcpStream`: `http://` only, one request per
-//! connection (`Connection: close`), `Content-Length` and chunked bodies, every size capped.
-//! Enough for the sync protocol's three calls; HTTPS goes through a TLS-terminating proxy for
-//! now (see `docs/sync.md`, "Limits").
+//! A minimal blocking HTTP/1.1 client over `std::net::TcpStream`: `http://` and (M4.7)
+//! `https://` through rustls, one request per connection (`Connection: close`),
+//! `Content-Length` and chunked bodies, every size capped. Enough for the sync protocol's three
+//! calls.
+//!
+//! TLS (`docs/sync.md`, "TLS"): rustls on the `ring` provider, TLS 1.2 and 1.3, certificates
+//! checked against the operating system's trust store (or, for tests and private CAs, only the
+//! roots given to [`Endpoint::with_ca_certs`]). A certificate that doesn't check out is an
+//! error that says why; there is no way to skip the check.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::{CertificateError, ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
 /// Longest status line + headers accepted.
 const MAX_HEAD: usize = 64 * 1024;
 /// Longest chunk-size line.
 const MAX_CHUNK_LINE: u64 = 1024;
+/// Most root certificates accepted through [`Endpoint::with_ca_certs`].
+const MAX_CA_CERTS: usize = 64;
+/// Largest DER certificate accepted there.
+const MAX_CA_CERT_BYTES: usize = 64 * 1024;
 
-/// Where a workspace lives: `http://host:port/prefix` plus `/w/{workspace}`.
+/// Which certificates an `https://` endpoint trusts.
+#[derive(Clone)]
+pub enum Trust {
+    /// The operating system's trust store (loaded once per process, on first use).
+    System,
+    /// Only the given roots (already built into a client config).
+    Roots(Arc<ClientConfig>),
+}
+
+impl std::fmt::Debug for Trust {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Trust::System => "Trust::System",
+            Trust::Roots(_) => "Trust::Roots",
+        })
+    }
+}
+
+impl PartialEq for Trust {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Trust::System, Trust::System) => true,
+            (Trust::Roots(a), Trust::Roots(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Trust {}
+
+fn client_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, String> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let cfg = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("TLS setup failed: {e}"))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(Arc::new(cfg))
+}
+
+/// The client config for the system trust store, built once.
+fn system_config() -> Result<Arc<ClientConfig>, String> {
+    static SYSTEM: OnceLock<Result<Arc<ClientConfig>, String>> = OnceLock::new();
+    SYSTEM
+        .get_or_init(|| {
+            let found = rustls_native_certs::load_native_certs();
+            let mut roots = RootCertStore::empty();
+            // Unparseable entries in the system store are skipped, as browsers do.
+            let (added, _skipped) = roots.add_parsable_certificates(found.certs);
+            if added == 0 {
+                let why = found.errors.first().map(|e| format!(" ({e})")).unwrap_or_default();
+                return Err(format!(
+                    "no trusted root certificates were found on this computer{}, so https:// servers can't be verified",
+                    why.chars().take(200).collect::<String>()
+                ));
+            }
+            client_config(roots)
+        })
+        .clone()
+}
+
+/// Where a workspace lives: `http[s]://host:port/prefix` plus `/w/{workspace}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
     pub host: String,
     pub port: u16,
     /// Path prefix without a trailing slash (`""`, `/track/w/team`).
     pub base: String,
+    /// `Some` for `https://` (M4.7): which certificates to trust.
+    pub tls: Option<Trust>,
 }
 
 impl Endpoint {
-    /// Parses `http://host[:port][/prefix]` and appends `/w/{workspace}` when one is given.
+    /// Parses `http[s]://host[:port][/prefix]` and appends `/w/{workspace}` when one is given.
     pub fn parse(url: &str, workspace: Option<&str>) -> Result<Self, String> {
         let url = url.trim();
         if url.len() > 2048 {
             return Err("the server URL is too long".into());
         }
-        let rest = if let Some(r) = url.strip_prefix("http://") {
-            r
-        } else if url.starts_with("https://") {
-            return Err("https:// is not supported yet: run a local TLS-terminating proxy and use http://".into());
+        let (rest, tls, default_port) = if let Some(r) = url.strip_prefix("http://") {
+            (r, None, 80)
+        } else if let Some(r) = url.strip_prefix("https://") {
+            (r, Some(Trust::System), 443)
         } else {
-            return Err("the server URL must start with http://".into());
+            return Err("the server URL must start with https:// or http://".into());
         };
         let (authority, path) = match rest.find('/') {
             Some(i) => (rest.get(..i).unwrap_or_default(), rest.get(i..).unwrap_or_default()),
@@ -46,7 +122,7 @@ impl Endpoint {
                 let port = p.parse::<u16>().map_err(|_| format!("bad port in server URL: '{}'", p.chars().take(20).collect::<String>()))?;
                 (authority.get(..i).unwrap_or_default(), port)
             }
-            _ => (authority, 80),
+            _ => (authority, default_port),
         };
         if host.starts_with('[') != host.ends_with(']') || (!host.starts_with('[') && host.contains(':')) {
             return Err("the server URL has a malformed host".into());
@@ -67,11 +143,39 @@ impl Endpoint {
             base.push_str("/w/");
             base.push_str(w);
         }
-        Ok(Endpoint { host: host.to_string(), port, base })
+        Ok(Endpoint { host: host.to_string(), port, base, tls })
     }
 
+    /// Trusts only these root certificates (DER) instead of the system's: a private CA, or a
+    /// test's self-signed certificate. Only for `https://` endpoints.
+    pub fn with_ca_certs(mut self, ders: &[Vec<u8>]) -> Result<Self, String> {
+        if self.tls.is_none() {
+            return Err("trusted certificates only apply to https:// servers".into());
+        }
+        if ders.is_empty() || ders.len() > MAX_CA_CERTS {
+            return Err(format!("give 1 to {MAX_CA_CERTS} trusted certificates"));
+        }
+        let mut roots = RootCertStore::empty();
+        for (i, der) in ders.iter().enumerate() {
+            if der.len() > MAX_CA_CERT_BYTES {
+                return Err(format!("trusted certificate {} is too large", i + 1));
+            }
+            roots.add(CertificateDer::from(der.clone())).map_err(|e| format!("trusted certificate {} is not usable: {e}", i + 1))?;
+        }
+        self.tls = Some(Trust::Roots(client_config(roots)?));
+        Ok(self)
+    }
+
+    /// `https://host:port/base` (or `http://…`).
     pub fn display(&self) -> String {
-        format!("http://{}:{}{}", self.host, self.port, self.base)
+        let scheme = if self.tls.is_some() { "https" } else { "http" };
+        format!("{scheme}://{}:{}{}", self.host, self.port, self.base)
+    }
+
+    /// The host is this machine (`localhost`, `127.x`, `::1`): plain `http://` stays on it.
+    pub fn is_loopback(&self) -> bool {
+        let h = self.host.trim_start_matches('[').trim_end_matches(']');
+        h.eq_ignore_ascii_case("localhost") || h.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
     }
 }
 
@@ -99,7 +203,83 @@ impl Response {
     }
 }
 
-fn connect(ep: &Endpoint, timeout: Duration) -> Result<TcpStream, String> {
+/// An open connection: a plain socket or TLS over one.
+pub enum Conn {
+    Plain(TcpStream),
+    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+}
+
+impl Conn {
+    /// The underlying socket (timeouts, shutdown from another thread).
+    pub fn socket(&self) -> &TcpStream {
+        match self {
+            Conn::Plain(s) => s,
+            Conn::Tls(t) => t.get_ref(),
+        }
+    }
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.read(buf),
+            Conn::Tls(t) => t.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.write(buf),
+            Conn::Tls(t) => t.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Conn::Plain(s) => s.flush(),
+            Conn::Tls(t) => t.flush(),
+        }
+    }
+}
+
+/// A user-facing reason a certificate was refused.
+fn certificate_error(host: &str, c: &CertificateError) -> String {
+    let why = match c {
+        CertificateError::UnknownIssuer => {
+            "it isn't signed by an authority this computer trusts (self-signed, or from a private CA). Add that CA to the system's trust store, or give the server a certificate from a public CA".to_string()
+        }
+        CertificateError::Expired | CertificateError::ExpiredContext { .. } => "it has expired".into(),
+        CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => {
+            "it isn't valid yet (check this computer's date and time)".into()
+        }
+        CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => {
+            format!("it was issued for a different host name than {host}")
+        }
+        CertificateError::Revoked => "it has been revoked".into(),
+        other => format!("{}", rustls::Error::InvalidCertificate(other.clone())),
+    };
+    format!("{host}: the server's certificate was refused: {why}")
+}
+
+/// A user-facing reason the TLS handshake failed.
+fn tls_error(ep: &Endpoint, e: &std::io::Error) -> String {
+    let at = format!("{}:{}", ep.host, ep.port);
+    match e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
+        Some(rustls::Error::InvalidCertificate(c)) => certificate_error(&ep.host, c),
+        Some(rustls::Error::InvalidMessage(_)) => {
+            format!("{at} didn't answer with TLS: is it an http:// server? (use http:// only for a server on this computer)")
+        }
+        Some(other) => format!("{at}: the secure connection failed: {other}"),
+        None if matches!(e.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset) => {
+            format!("{at} closed the connection during the TLS handshake: is it serving https:// on this port?")
+        }
+        None => format!("{at}: TLS handshake: {e}"),
+    }
+}
+
+fn tcp(ep: &Endpoint, timeout: Duration) -> Result<TcpStream, String> {
     let host = ep.host.trim_start_matches('[').trim_end_matches(']');
     let addrs = (host, ep.port).to_socket_addrs().map_err(|e| format!("{}: {e}", ep.host))?;
     let mut last = format!("{}: no address", ep.host);
@@ -117,7 +297,33 @@ fn connect(ep: &Endpoint, timeout: Duration) -> Result<TcpStream, String> {
     Err(last)
 }
 
-fn send_head(s: &mut TcpStream, ep: &Endpoint, method: &str, path: &str, token: &str, body: Option<&[u8]>, accept: &str) -> Result<(), String> {
+/// Connects and, for `https://`, completes the TLS handshake (so certificate errors surface
+/// here, before anything is sent).
+pub fn connect(ep: &Endpoint, timeout: Duration) -> Result<Conn, String> {
+    let mut sock = tcp(ep, timeout)?;
+    let Some(trust) = &ep.tls else { return Ok(Conn::Plain(sock)) };
+    let cfg = match trust {
+        Trust::System => system_config()?,
+        Trust::Roots(c) => Arc::clone(c),
+    };
+    let host = ep.host.trim_start_matches('[').trim_end_matches(']').to_string();
+    let name = ServerName::try_from(host).map_err(|_| format!("{}: not a valid TLS server name", ep.host))?;
+    let mut tls = ClientConnection::new(cfg, name).map_err(|e| format!("{}: TLS setup failed: {e}", ep.host))?;
+    // `complete_io` drives the whole handshake; the bound only guards against a stuck peer
+    // (the socket timeouts bound the time).
+    for _ in 0..64 {
+        if !tls.is_handshaking() {
+            break;
+        }
+        tls.complete_io(&mut sock).map_err(|e| tls_error(ep, &e))?;
+    }
+    if tls.is_handshaking() {
+        return Err(format!("{}:{}: the TLS handshake did not finish", ep.host, ep.port));
+    }
+    Ok(Conn::Tls(Box::new(StreamOwned::new(tls, sock))))
+}
+
+fn send_head(s: &mut Conn, ep: &Endpoint, method: &str, path: &str, token: &str, body: Option<&[u8]>, accept: &str) -> Result<(), String> {
     let mut head = format!(
         "{method} {}{path} HTTP/1.1\r\nHost: {}:{}\r\nAuthorization: Bearer {token}\r\nAccept: {accept}\r\nConnection: close\r\nUser-Agent: trackcraft-sync/{}\r\n",
         ep.base,
@@ -231,7 +437,7 @@ impl<R: BufRead> Read for Chunked<R> {
     }
 }
 
-fn body_reader(r: BufReader<TcpStream>, framing: Framing) -> Box<dyn Read + Send> {
+fn body_reader(r: BufReader<Conn>, framing: Framing) -> Box<dyn Read + Send> {
     match framing {
         Framing::Length(n) => Box::new(r.take(n)),
         Framing::Chunked => Box::new(Chunked::new(r)),
@@ -290,8 +496,8 @@ impl Stream {
 pub fn open_stream(ep: &Endpoint, path: &str, token: &str, connect_timeout: Duration, read_timeout: Duration) -> Result<Stream, String> {
     let mut s = connect(ep, connect_timeout)?;
     send_head(&mut s, ep, "GET", path, token, None, "text/event-stream")?;
-    s.set_read_timeout(Some(read_timeout)).map_err(|e| e.to_string())?;
-    let handle = s.try_clone().map_err(|e| e.to_string())?;
+    s.socket().set_read_timeout(Some(read_timeout)).map_err(|e| e.to_string())?;
+    let handle = s.socket().try_clone().map_err(|e| e.to_string())?;
     let mut r = BufReader::new(s);
     let (status, framing) = read_head(&mut r)?;
     Ok(Stream { status, reader: BufReader::new(body_reader(r, framing)), handle })
@@ -313,12 +519,28 @@ mod tests {
         let e = Endpoint::parse("http://10.0.0.1/track/", None).unwrap();
         assert_eq!((e.port, e.base.as_str()), (80, "/track"));
         assert_eq!(Endpoint::parse("http://[::1]:9", None).unwrap().host, "[::1]");
-        for bad in ["host:80", "https://x", "http://", "http://h:0", "http://h:99999", "http://h/a b", "http://h/?q", "ftp://h"] {
+        for bad in ["host:80", "https://", "http://", "http://h:0", "http://h:99999", "http://h/a b", "http://h/?q", "ftp://h", "HTTPS//h"] {
             assert!(Endpoint::parse(bad, None).is_err(), "{bad}");
         }
         assert!(Endpoint::parse("http://h", Some("Team")).is_err());
         assert!(Endpoint::parse("http://h", Some("../x")).is_err());
         assert!(valid_token("tct_abc") && !valid_token("a\r\nX: y") && !valid_token(""));
+        // M4.7: https:// defaults to 443 and trusts the system store; http:// has no TLS.
+        let e = Endpoint::parse("https://track.example.org/t", Some("team")).unwrap();
+        assert_eq!((e.port, e.base.as_str(), e.tls.clone()), (443, "/t/w/team", Some(Trust::System)));
+        assert_eq!(e.display(), "https://track.example.org:443/t/w/team");
+        assert_eq!(Endpoint::parse("https://[::1]:8443", None).unwrap().port, 8443);
+        assert!(Endpoint::parse("http://h", None).unwrap().tls.is_none());
+        assert!(Endpoint::parse("http://h", None).unwrap().with_ca_certs(&[vec![1]]).is_err());
+        let https = Endpoint::parse("https://h", None).unwrap();
+        assert!(https.clone().with_ca_certs(&[]).is_err());
+        assert!(https.clone().with_ca_certs(&[b"not a certificate".to_vec()]).is_err());
+        assert!(https.with_ca_certs(&vec![vec![0u8; 10]; MAX_CA_CERTS + 1]).is_err());
+        for (url, local) in
+            [("http://localhost:1", true), ("http://127.0.0.1", true), ("http://[::1]:2", true), ("http://10.0.0.1", false), ("https://h", false)]
+        {
+            assert_eq!(Endpoint::parse(url, None).unwrap().is_loopback(), local, "{url}");
+        }
     }
 
     #[test]

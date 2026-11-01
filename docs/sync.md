@@ -1,6 +1,6 @@
 # Live sync
 
-> **Status:** 2026-10-31 · M4.2 — desktop clients edit a server workspace live.
+> **Status:** 2026-10-31 · M4.7 — HTTPS in the desktop client, status-bar connection indicator (M4.2: desktop clients edit a server workspace live).
 
 Several desktop clients (and every REST/MCP caller) edit one server-hosted workspace and see each
 other's changes as they happen. The server is authoritative; clients apply their own commands
@@ -8,7 +8,8 @@ optimistically and converge on the server's order.
 
 ```sh
 trackcraft-server token create --user riley --data ./data      # prints tct_…
-trackcraft --server http://127.0.0.1:8080 --workspace lab --token tct_…
+trackcraft --server https://track.example.org --workspace lab --token tct_…
+trackcraft --server http://127.0.0.1:8080 --workspace lab --token tct_…   # same computer
 # or TRACKCRAFT_TOKEN=tct_… trackcraft --server …, or put the token in
 # <config dir>/trackcraft/server-token (macOS: ~/Library/Application Support/trackcraft/)
 ```
@@ -91,12 +92,70 @@ reached at start) and returns the `Session` the UI edits plus the `Remote` that 
   snapshot already contains (`appliedSeq`) are dropped, the rest re-run on top. Only the
   workspace is replaced, so the user's view (selection, open issue, scroll) stays.
 - **Status.** `Remote::state()` (Online / Offline / Resyncing / Token refused) and
-  `status_text()` (`Offline · 2 unsent`). The desktop app shows it in the window title and
-  toasts transitions; a status-bar slot needs a small `TrackApp` hook (owned by the UI crate).
+  `status_text()` (`Offline · 2 unsent`). The desktop app shows it in the status bar's
+  connection indicator (M4.7, below), keeps it in the window title, and toasts transitions.
 - **Transport.** A small blocking HTTP/1.1 client over `std::net::TcpStream` (`http.rs`:
-  Content-Length and chunked bodies, every size capped, header injection refused) — no HTTP or TLS
-  crates. `http://` only: put a TLS-terminating proxy in front of the server and, for clients
-  outside the host, run a local one too (e.g. an SSH tunnel). HTTPS in the client is later work.
+  Content-Length and chunked bodies, every size capped, header injection refused) — no HTTP
+  crates; `https://` goes through rustls (M4.7, below).
+
+## TLS (M4.7)
+
+`--server https://host[:port]` (default port 443) connects with TLS 1.2/1.3 through **rustls**
+on the **ring** crypto provider and checks the server's certificate against the **operating
+system's trust store** (`rustls-native-certs`: the macOS keychain, the Windows store, the usual
+Linux bundle files). The handshake completes before anything is sent, so a refused certificate
+never leaks the token.
+
+- **Certificate errors are errors.** There is no `--insecure-skip-verify` and no fallback to
+  `http://`. The message says what is wrong and what to do: *not signed by an authority this
+  computer trusts (self-signed, or from a private CA): add that CA to the system's trust store*,
+  *expired*, *not valid yet (check the clock)*, *issued for a different host name*, *revoked*,
+  or *didn't answer with TLS: is it an http:// server?*. A self-hosted server with a private CA
+  works once that CA is in the OS trust store. `Config::ca_certs` (DER) replaces the system
+  roots for a program that embeds the client (the tests use it); the desktop app has no flag
+  for it.
+- **`http://` stays** for a server on the same computer (no TLS needed on loopback). Plain
+  `http://` to another computer still works (e.g. inside a trusted LAN), but the app warns at
+  start and the indicator's tooltip says *Not encrypted*: the token crosses the network in the
+  clear.
+- **Tests** (`crates/sync-client/src/tests/tls.rs`): an in-process TLS server whose self-signed
+  CA (made with `rcgen`) is the only trusted root — requests, the SSE stream, a full `Remote`
+  session through a TLS-terminating proxy; untrusted CA, the system store, wrong host name,
+  expired certificate, `https://` to a plain server; and that nothing reaches the server when the
+  certificate fails.
+
+**Why these crates (licences).** The repo has no `deny.toml`; the policy is AGENTS.md's
+(permissive only) and mirrors Pdfcraft's `deny.toml` allow-list (MIT, Apache-2.0, BSD, ISC,
+Zlib, Unicode-3.0, BSL-1.0, CC0-1.0). New runtime crates: `rustls` (Apache-2.0 OR ISC OR MIT),
+`rustls-webpki` (ISC), `rustls-pki-types` (MIT OR Apache-2.0), `ring` (Apache-2.0 AND ISC — both
+on the list), `untrusted` (ISC), `rustls-native-certs` (Apache-2.0 OR ISC OR MIT) with
+`security-framework` (macOS) / `schannel` (Windows) / `openssl-probe` (Linux; finds bundle
+files, links nothing), all MIT/Apache. `rcgen` (MIT OR Apache-2.0) is a dev-dependency only.
+- **ring, not aws-lc-rs:** rustls' default provider, `aws-lc-rs`, needs cmake (and on some
+  targets Go/NASM) to build its C library; `ring` needs only a C compiler through `cc`, which
+  the suite's CI already has. rustls is built with `default-features = false` and the provider
+  passed explicitly (`builder_with_provider`), so no feature unification can switch it.
+- **OS roots, not webpki-roots:** `webpki-roots` bundles Mozilla's CA list, whose data is
+  **CDLA-Permissive-2.0** — not on the allow-list (Pdfcraft carries it only as a narrow
+  build-script exception). The OS store also follows the user's own trust decisions (a company
+  CA) and gets updates with the OS.
+- **Native only.** `trackcraft-sync-client` is a desktop crate (std sockets, threads); it is not
+  in the wasm build. The web client talks to the server through the browser, whose TLS it uses.
+
+## Connection indicator and remote-mode UI (M4.7)
+
+`trackcraft-ui-egui` exposes host hooks (`crates/ui-egui/src/lib.rs`, the M4.7 block):
+`TrackApp::set_connection(Option<ConnectionState>)` with `ConnectionState { label, kind:
+Online|Syncing|Offline|Error, detail }`, `TrackApp::take_reconnect_request()`, and
+`TrackApp::set_remote(bool)` (a remote-mode `Session` counts too). The status bar's left
+section shows a dot (filled green: online; ring: syncing; hollow: offline; red: error) and the
+label; the tooltip shows `detail` (server, changes waiting, last error, an unencrypted
+warning). Clicking it when offline or in error offers **Reconnect now**, which the desktop app
+polls each frame and passes to `Remote::reconnect_now()` (the retry threads skip their backoff
+wait). On a server workspace Undo/Redo are disabled with the tooltip *Undo isn't available on
+server workspaces yet* (their shortcuts show it as a toast; toasts offer no Undo), and
+File › Save shows *Saved on the server* instead of a file dialog. `ui.connection` drives the
+indicator from the control channel and `ui_shot` (`crates/ui-egui/shots/connection.jsonl`).
 
 ## Guarantees and limits
 

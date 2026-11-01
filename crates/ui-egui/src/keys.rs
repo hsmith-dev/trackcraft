@@ -437,6 +437,11 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
 /// it with the view's context.
 fn command(app: &mut TrackApp, id: &'static str) {
     let Some(spec) = trackcraft_engine::command(id) else { return };
+    // M4.7: on a server workspace the shortcuts say why nothing happens.
+    if matches!(id, "edit.undo" | "edit.redo") && app.is_remote() {
+        app.push(Action::Toast(crate::REMOTE_UNDO.into()));
+        return;
+    }
     if let Some(why) = (spec.enabled)(&app.session) {
         app.push(Action::Toast(format!("{}: {why}", spec.label)));
         return;

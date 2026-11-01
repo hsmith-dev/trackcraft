@@ -76,15 +76,22 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                     let display = app.session.ws.users.get(&me).map(|u| u.display_name.clone()).unwrap_or_else(|| me.clone());
                     // UI-7: the avatar menu (who you act as, theme, Settings).
                     user_menu(app, ui, t, &me, &display);
-                    let redo = ui
-                        .add_enabled(app.session.can_redo(), egui::Button::new("Redo").small())
+                    let remote = app.is_remote(); // M4.7: no undo on a server workspace yet
+                    let mut redo = ui
+                        .add_enabled(!remote && app.session.can_redo(), egui::Button::new("Redo").small())
                         .on_hover_text(format!("Redo ({})", crate::key("Mod+Shift+Z")));
+                    if remote {
+                        redo = redo.on_disabled_hover_text(crate::REMOTE_UNDO);
+                    }
                     if redo.clicked() {
                         app.push(Action::Run { id: "edit.redo", params: json!({}), then: Then::Nothing });
                     }
-                    let undo = ui
-                        .add_enabled(app.session.can_undo(), egui::Button::new("Undo").small())
+                    let mut undo = ui
+                        .add_enabled(!remote && app.session.can_undo(), egui::Button::new("Undo").small())
                         .on_hover_text(format!("Undo ({})", crate::key("Mod+Z")));
+                    if remote {
+                        undo = undo.on_disabled_hover_text(crate::REMOTE_UNDO);
+                    }
                     if undo.clicked() {
                         app.push(Action::Run { id: "edit.undo", params: json!({}), then: Then::Nothing });
                     }
