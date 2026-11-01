@@ -31,6 +31,9 @@ const LAYERS: &[(&str, u8)] = &[
     ("trackcraft-engine", 4),
     ("trackcraft-mcp", 5),
     ("trackcraft-api", 5),
+    // The mountable server library sits above the API routes it serves; no UI crates (checked
+    // below by name, since L6 alone would allow them).
+    ("trackcraft-server-lib", 6),
     ("trackcraft-ui-egui", 6),
     ("trackcraft", 7),
     ("trackcraft-cli", 7),
@@ -139,7 +142,7 @@ fn layers() -> Result<(), String> {
             {
                 errors.push(format!("{name} (L{l}) depends on {d} (L{dl}): dependencies must point to lower layers"));
             }
-            if l < 6 && UI_ONLY.contains(&d) {
+            if (l < 6 || name == "trackcraft-server-lib") && UI_ONLY.contains(&d) {
                 errors.push(format!("{name} (L{l}) depends on UI crate {d}: only L6+ may"));
             }
             if l < 5 && SERVER_ONLY.contains(&d) {
