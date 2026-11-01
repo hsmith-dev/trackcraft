@@ -1,0 +1,16 @@
+[package]
+name = "trackcraft-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+trackcraft-engine.workspace = true
+trackcraft-store.workspace = true
+trackcraft-mcp.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

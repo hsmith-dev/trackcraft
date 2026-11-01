@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+default-members = ["crates/*", "apps/trackcraft-cli", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/hsmith-dev/trackcraft"
+
+[workspace.dependencies]
+# internal
+trackcraft-core = { path = "crates/core" }
+trackcraft-markup = { path = "crates/markup" }
+trackcraft-jql = { path = "crates/jql" }
+trackcraft-model = { path = "crates/model" }
+trackcraft-store = { path = "crates/store" }
+trackcraft-engine = { path = "crates/engine" }
+trackcraft-mcp = { path = "crates/mcp" }
+
+# foundation
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# All date/time conversion goes through chrono (AGENTS.md: no hand-rolled calendar code).
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+# A wall clock that works on native and in the browser.
+web-time = "1.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+cognitive_complexity = "deny"
+wildcard_imports = "deny"
+dbg_macro = "warn"
+todo = "warn"
+too_many_arguments = "deny"
+type_complexity = "allow"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 0
