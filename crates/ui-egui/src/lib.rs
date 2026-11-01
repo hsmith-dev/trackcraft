@@ -7,7 +7,9 @@
 
 pub mod icons;
 mod issues;
+mod keys;
 pub mod markup_view;
+mod order;
 mod palette;
 mod shell;
 pub mod theme;
@@ -51,6 +53,7 @@ pub(crate) enum Action {
     EditPage(Id),
     File(FileRequest),
     TogglePalette,
+    ShowHelp,
     ToggleTheme,
     Toast(String),
 }
@@ -74,6 +77,10 @@ pub(crate) struct IssueUi {
     pub labels: Option<String>,
     pub comment: String,
     pub confirm_delete: bool,
+    /// Focus the comment box next frame (`m`).
+    pub focus_comment: bool,
+    /// Focus the description editor next frame (`e`).
+    pub focus_description: bool,
 }
 
 #[derive(Debug, Default)]
@@ -125,6 +132,16 @@ pub struct TrackApp {
     pub(crate) history_preview: Option<u32>,
     pub(crate) palette: Option<palette::Palette>,
     pub(crate) expanded: std::collections::BTreeSet<Id>,
+    /// The keyboard-selected row of the issue list.
+    pub(crate) list_sel: Option<IssueKey>,
+    /// The keyboard-selected card on the board.
+    pub(crate) board_sel: Option<IssueKey>,
+    /// Scroll the selected row or card into view next frame.
+    pub(crate) scroll_sel: bool,
+    /// The keyboard shortcut overlay is open.
+    pub(crate) help: bool,
+    /// Key events queued by the control channel (`ui.key`), fed in at the next frame.
+    injected: Vec<egui::Event>,
     toast: Option<(String, f64)>,
     pending: Vec<Action>,
     file_request: Option<FileRequest>,
@@ -154,6 +171,11 @@ impl TrackApp {
             history_preview: None,
             palette: None,
             expanded,
+            list_sel: None,
+            board_sel: None,
+            scroll_sel: false,
+            help: false,
+            injected: vec![],
             toast: None,
             pending: vec![],
             file_request: None,
@@ -221,8 +243,10 @@ impl TrackApp {
         let t = self.tokens(ctx);
         ctx.set_visuals(t.visuals());
         let typing = ctx.egui_wants_keyboard_input();
-        let modal = self.create.is_some() || self.palette.is_some() || self.new_page.is_some();
+        let modal = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.help;
+        let injected = std::mem::take(&mut self.injected);
         ctx.input_mut(|i| {
+            i.events.extend(injected);
             use egui::{Key, KeyboardShortcut, Modifiers};
             let cmd = |k| KeyboardShortcut::new(Modifiers::COMMAND, k);
             let cmd_shift = |k| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, k);
@@ -245,6 +269,10 @@ impl TrackApp {
             if i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft)) {
                 self.pending.push(Action::Back);
             }
+            // Single keys: never while typing or behind a dialog (`?` also closes its own overlay).
+            if !typing && (!modal || self.help) && keys::consume_help(i) {
+                self.help = !self.help;
+            }
             if !typing && !modal {
                 if i.consume_key(Modifiers::NONE, Key::C) {
                     self.pending.push(Action::OpenCreate(None));
@@ -252,11 +280,17 @@ impl TrackApp {
                 if i.consume_key(Modifiers::NONE, Key::Slash) {
                     self.focus_search = true;
                 }
+                keys::view_keys(self, i);
             }
             if i.key_pressed(Key::Escape) {
-                self.create = None;
-                self.palette = None;
-                self.new_page = None;
+                if modal {
+                    self.create = None;
+                    self.palette = None;
+                    self.new_page = None;
+                    self.help = false;
+                } else if matches!(self.view, View::Issue(_)) {
+                    keys::cancel_issue_edits(self);
+                }
             }
         });
         let now = ctx.input(|i| i.time);
@@ -290,6 +324,7 @@ impl TrackApp {
         issues::create_dialog(self, ui.ctx(), &t);
         wiki::new_page_dialog(self, ui.ctx(), &t);
         palette::show(self, ui.ctx(), &t);
+        keys::help(self, ui.ctx(), &t);
         self.show_toast(ui.ctx(), &t);
         self.apply_pending();
     }
@@ -348,6 +383,7 @@ impl TrackApp {
             }
             Action::File(r) => self.file_request = Some(r),
             Action::TogglePalette => self.palette = if self.palette.is_some() { None } else { Some(palette::Palette::default()) },
+            Action::ShowHelp => self.help = true,
             Action::ToggleTheme => self.dark = Some(!self.dark.unwrap_or(false)),
             Action::Toast(m) => self.notify(m),
             Action::Run { id, params, then } => self.run(id, &params, then),
@@ -410,6 +446,7 @@ impl TrackApp {
     /// - `ui.navigate` `{"view": "home"|"issues"|"board"|"issue"|"page"|"history", "project"|"key"|"id": …}`
     /// - `ui.search` `{"jql": …}` · `ui.create` `{"project": …}` · `ui.palette` · `ui.editPage` `{"id": n}`
     /// - `ui.theme` `{"dark": bool}`
+    /// - `ui.key` `{"key": "j"|"ArrowDown"|"Enter"|"?"…, "shift"|"alt"|"command": bool}`: a key press at the next frame
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -454,6 +491,23 @@ impl TrackApp {
                 let id = Id(p.get("id").and_then(Value::as_u64).ok_or("missing \"id\"")?);
                 self.navigate(View::Page(id));
                 self.apply(Action::EditPage(id));
+                Ok(json!({"ok": true}))
+            }
+            "ui.key" => {
+                let name = s("key");
+                let key = egui::Key::from_name(&name).ok_or_else(|| format!("unknown key {}", name.chars().take(30).collect::<String>()))?;
+                let on = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
+                let mut modifiers = egui::Modifiers::NONE;
+                for (k, m) in [("alt", egui::Modifiers::ALT), ("shift", egui::Modifiers::SHIFT), ("command", egui::Modifiers::COMMAND)] {
+                    if on(k) {
+                        modifiers |= m;
+                    }
+                }
+                if self.injected.len() < 64 {
+                    for pressed in [true, false] {
+                        self.injected.push(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers });
+                    }
+                }
                 Ok(json!({"ok": true}))
             }
             "ui.theme" => {

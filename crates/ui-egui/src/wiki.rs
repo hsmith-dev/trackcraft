@@ -82,9 +82,7 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
         }
     });
     ui.add_space(12.0);
-    if !ui.ctx().egui_wants_keyboard_input() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::E)) {
-        app.push(Action::EditPage(id));
-    }
+    // `e` edits the page: see `keys::view_keys` (ignored while typing or behind a dialog).
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.set_max_width(820.0);
         if is_home && p.body.is_empty() {

@@ -18,6 +18,8 @@ pub(crate) struct Palette {
 enum Entry {
     Go(View, String),
     Cmd(&'static str, String),
+    /// The shortcut overlay (`?`).
+    Help(String),
 }
 
 fn entries(app: &TrackApp, q: &str) -> Vec<Entry> {
@@ -42,6 +44,10 @@ fn entries(app: &TrackApp, q: &str) -> Vec<Entry> {
         if hit(&label) {
             out.push(Entry::Go(View::Board(p.key.clone()), label));
         }
+    }
+    let help = "Keyboard shortcuts";
+    if hit(help) || hit("help keys") {
+        out.push(Entry::Help(help.into()));
     }
     for c in trackcraft_engine::commands() {
         let label = format!("{} — {}", c.label, c.location);
@@ -95,6 +101,7 @@ pub(crate) fn show(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
                 let (label, kind) = match e {
                     Entry::Go(_, l) => (l.as_str(), "go"),
                     Entry::Cmd(id, l) => (l.as_str(), *id),
+                    Entry::Help(l) => (l.as_str(), "?"),
                 };
                 let sel = n == pal.selected;
                 let r = ui.horizontal(|ui| {
@@ -119,6 +126,7 @@ pub(crate) fn show(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
     if let Some(n) = chosen {
         match list.into_iter().nth(n) {
             Some(Entry::Go(v, _)) => app.push(Action::Nav(v)),
+            Some(Entry::Help(_)) => app.push(Action::ShowHelp),
             Some(Entry::Cmd(id, label)) => {
                 let then = if id == "issue.create" { Then::OpenIssue } else { Then::Toast(format!("Done: {label}")) };
                 if id == "issue.create" {
