@@ -25,6 +25,7 @@ hex.workspace = true
 
 [dev-dependencies]
 tower.workspace = true
+futures-util.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "time", "sync", "net"] }
 
 [lints]

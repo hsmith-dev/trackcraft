@@ -1,6 +1,7 @@
 //! TrackCraft desktop app.
 //!
-//! Usage: `trackcraft [--sample] [--control PORT] [--recent] [file.track]`. With no file and no
+//! Usage: `trackcraft [--sample] [--control PORT] [--recent] [file.track]`, or remote mode
+//! `trackcraft --server http://host:port [--workspace NAME] [--token TOKEN]` (M4.2, `remote.rs`). With no file and no
 //! `--sample`, reopens the most recent workspace (if it still exists), else the sample workspace.
 //! File › New starts an empty one.
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
@@ -9,6 +10,7 @@
 mod control;
 mod paths;
 mod recent;
+mod remote;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,6 +25,7 @@ use control::{ControlRequest, KeyFile, reply_for};
 
 const USAGE: &str = "\
 usage: trackcraft [--sample] [--control PORT] [file.track]
+       trackcraft --server http://HOST:PORT [--workspace NAME] [--token TOKEN] [--control PORT]
        trackcraft --recent
 
   file.track        open this workspace (default: the most recent one, else the sample)
@@ -30,6 +33,11 @@ usage: trackcraft [--sample] [--control PORT] [file.track]
   --control PORT    serve the control channel on 127.0.0.1:PORT (docs/control-protocol.md);
                     TRACKCRAFT_CONTROL_PORT does the same
   --recent          list recently opened workspaces and exit
+  --server URL      edit a workspace on a trackcraft-server live (docs/sync.md); the token
+                    comes from --token, TRACKCRAFT_TOKEN or the server-token file in the
+                    config folder
+  --workspace NAME  the hosted workspace (default: the server's default workspace)
+  --token TOKEN     an API token (`trackcraft-server token create`)
 ";
 
 /// How long to wait before retrying a failed autosave.
@@ -45,6 +53,10 @@ struct Args {
     recent: bool,
     control: Option<u16>,
     file: Option<PathBuf>,
+    // M4.2 remote mode.
+    server: Option<String>,
+    workspace: Option<String>,
+    token: Option<String>,
 }
 
 fn parse_port(s: &str) -> Result<u16, String> {
@@ -65,6 +77,10 @@ fn parse_args(args: &[String], env_port: Option<&str>) -> Result<Args, String> {
             "--recent" => a.recent = true,
             "--control" => a.control = Some(parse_port(it.next().ok_or("--control needs a port")?)?),
             s if s.starts_with("--control=") => a.control = Some(parse_port(s.trim_start_matches("--control="))?),
+            // M4.2 remote mode.
+            "--server" => a.server = Some(it.next().ok_or("--server needs a URL")?.clone()),
+            "--workspace" => a.workspace = Some(it.next().ok_or("--workspace needs a name")?.clone()),
+            "--token" => a.token = Some(it.next().ok_or("--token needs a token")?.clone()),
             s if s.starts_with('-') => return Err(format!("unknown option '{}'", s.chars().take(40).collect::<String>())),
             s if a.file.is_none() => a.file = Some(PathBuf::from(s)),
             _ => return Err("more than one file given".into()),
@@ -74,6 +90,12 @@ fn parse_args(args: &[String], env_port: Option<&str>) -> Result<Args, String> {
         && let Some(p) = env_port.filter(|p| !p.trim().is_empty())
     {
         a.control = Some(parse_port(p).map_err(|e| format!("TRACKCRAFT_CONTROL_PORT: {e}"))?);
+    }
+    if a.server.is_none() && (a.workspace.is_some() || a.token.is_some()) {
+        return Err("--workspace and --token need --server".into());
+    }
+    if a.server.is_some() && (a.file.is_some() || a.sample) {
+        return Err("--server opens the server's workspace: drop the file / --sample".into());
     }
     Ok(a)
 }
@@ -138,6 +160,8 @@ struct App {
     dirty_since: Option<(u64, Instant)>,
     /// The workspace path last recorded in the recent list.
     seen_path: Option<PathBuf>,
+    /// M4.2 remote mode: syncing with a server.
+    remote: Option<remote::RemoteMode>,
 }
 
 impl App {
@@ -302,13 +326,20 @@ fn remember(p: &Path) {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.logic(ctx);
+        // M4.2: local commands out, server changes in.
+        if let Some(r) = self.remote.as_mut() {
+            r.pump(&mut self.app, ctx);
+        }
         if let Some(req) = self.app.take_file_request() {
             self.file_request(req);
         }
         self.drain_control(ctx);
         self.track_path();
         self.autosave(ctx);
-        let title = self.app.title();
+        let mut title = self.app.title();
+        if let Some(r) = &self.remote {
+            title.push_str(&r.title_suffix());
+        }
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -354,23 +385,42 @@ fn main() -> std::process::ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let session = match &args.file {
-        Some(p) => match open_session(p) {
-            Ok(s) => s,
+    // M4.2 remote mode: the workspace comes from the server.
+    let mut remote_mode = None;
+    let session = if let Some(server) = &args.server {
+        let token = remote::token_path();
+        let env_token = std::env::var("TRACKCRAFT_TOKEN").ok();
+        let connected = remote::resolve_token(args.token.as_deref(), env_token.as_deref(), token.as_deref())
+            .and_then(|t| remote::RemoteMode::connect(server, args.workspace.as_deref(), &t));
+        match connected {
+            Ok((r, s)) => {
+                remote_mode = Some(r);
+                s
+            }
             Err(e) => {
                 eprintln!("trackcraft: {e}");
                 return ExitCode::FAILURE;
             }
-        },
-        None if args.sample => Session::sample(),
-        None => match recent_list.iter().find(|p| p.is_file()).map(|p| open_session(p)) {
-            Some(Ok(s)) => s,
-            Some(Err(e)) => {
-                eprintln!("trackcraft: could not reopen the last workspace ({e}); opening the sample");
-                Session::sample()
-            }
-            None => Session::sample(),
-        },
+        }
+    } else {
+        match &args.file {
+            Some(p) => match open_session(p) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("trackcraft: {e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            None if args.sample => Session::sample(),
+            None => match recent_list.iter().find(|p| p.is_file()).map(|p| open_session(p)) {
+                Some(Ok(s)) => s,
+                Some(Err(e)) => {
+                    eprintln!("trackcraft: could not reopen the last workspace ({e}); opening the sample");
+                    Session::sample()
+                }
+                None => Session::sample(),
+            },
+        }
     };
     let server = match args.control {
         Some(port) => {
@@ -394,7 +444,15 @@ fn main() -> std::process::ExitCode {
         viewport: egui::ViewportBuilder::default().with_title("TrackCraft").with_inner_size([1360.0, 860.0]).with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
-    let mut app = App { app: TrackApp::new(session), title: String::new(), control: None, key_file: None, dirty_since: None, seen_path: None };
+    let mut app = App {
+        app: TrackApp::new(session),
+        title: String::new(),
+        control: None,
+        key_file: None,
+        dirty_since: None,
+        seen_path: None,
+        remote: remote_mode,
+    };
     let result = eframe::run_native(
         "TrackCraft",
         options,
@@ -402,6 +460,9 @@ fn main() -> std::process::ExitCode {
             // fonts: scripts and emoji beyond egui's bundled Latin/Greek/Cyrillic faces.
             trackcraft_ui_egui::fonts::install(&cc.egui_ctx);
 
+            if let Some(r) = &app.remote {
+                r.set_context(&cc.egui_ctx);
+            }
             if let Some(server) = server {
                 let ctx = cc.egui_ctx.clone();
                 let (rx, key_file) = server.serve(move || ctx.request_repaint());
@@ -445,6 +506,14 @@ mod tests {
         assert!(env("junk").is_err());
         // The flag wins over the environment.
         assert_eq!(parse_args(&["--control".into(), "5".into()], Some("6")).unwrap().control, Some(5));
+        // M4.2 remote mode.
+        let r = args(&["--server", "http://h:8080", "--workspace", "team", "--token", "tct_x"]).unwrap();
+        assert_eq!((r.server.as_deref(), r.workspace.as_deref(), r.token.as_deref()), (Some("http://h:8080"), Some("team"), Some("tct_x")));
+        for bad in
+            [&["--server"][..], &["--token", "t"], &["--workspace", "w"], &["--server", "http://h", "w.track"], &["--server", "http://h", "--sample"]]
+        {
+            assert!(args(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

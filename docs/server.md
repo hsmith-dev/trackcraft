@@ -1,6 +1,6 @@
 # The TrackCraft server
 
-> **Status:** 2026-10-31 · M4.1 — first server and REST API subset.
+> **Status:** 2026-10-31 · M4.2 — live sync (journal, SSE events, snapshot; [`sync.md`](sync.md)) on the M4.1 server and REST API subset.
 
 `trackcraft-server` hosts TrackCraft workspaces for a team and answers a subset of the Jira Cloud
 REST v3, Jira Software Agile 1.0 and Confluence Cloud REST v2 APIs (see
@@ -15,6 +15,8 @@ calls.
 | `crates/api` (`trackcraft-api`) | L5 | Route handlers: maps each request onto engine commands and answers in the public shapes. Defines the `IdentityProvider` and `EventSink` traits and the workspace `Hub`. No runtime, no file I/O. |
 | `crates/server` (`trackcraft-server-lib`, lib `trackcraft_server`) | L6 | The mountable server: `Server::open(data_dir)`, `router(&server) -> axum::Router`, `mount`, token auth, body limit, timeout, request log, debounced atomic saves. Spawns tasks on the caller's runtime; never creates one. No UI crates (`cargo xtask layers`). |
 | `apps/trackcraft-server` | L7 | The binary: argument parsing, the Tokio runtime, Ctrl-C shutdown. |
+| `crates/sync-proto` (`trackcraft-sync-proto`) | L1 | Live-sync wire types and the SSE line parser (serde only; [`sync.md`](sync.md)). |
+| `crates/sync-client` (`trackcraft-sync-client`) | L5 | The blocking desktop sync client (std `TcpStream`, no runtime). |
 
 The library sits at L6 only because it depends on `trackcraft-api` (L5) and layers point strictly
 downwards; it is not a UI crate.
@@ -80,7 +82,8 @@ data/
   engine's own rules still apply, e.g. only a comment's author may edit it).
 - Over the native endpoint the server refuses commands that act on the server rather than the
   workspace: `file.open`, `file.save`, `workspace.new`, `edit.undo`, `edit.redo`, `user.switch`
-  (403). Undo/redo is per-session in the engine and would undo another user's change.
+  (403), and `workspace.import` (it reads a path on the host) — the engine's `LOCAL_ONLY` list.
+  Undo/redo is per-session in the engine and would undo another user's change.
 
 ## Limits and errors
 
@@ -100,8 +103,12 @@ data/
 
 - `GET /api/health` (no auth) → `{"status": "ok", "version"}`.
 - `GET /api/commands` → every command (`app.commands`), server-blocked ones marked `disabled`.
-- `POST /api/command {"command": "issue.create", "params": {…}}` → `{"command", "result"}` — the
-  same commands and params as the CLI and MCP (`trackcraft-cli commands`).
+- `POST /api/command {"command": "issue.create", "params": {…}, "origin"?: {"client", "seq"}}` →
+  `{"command", "result", "rev", "entry", "duplicate"}` — the same commands and params as the CLI
+  and MCP (`trackcraft-cli commands`); `rev`/`entry` are the sync revision and journal entry
+  ([`sync.md`](sync.md)).
+- `GET /api/sync/snapshot`, `GET /api/sync/events?since=REV&epoch=E` (Server-Sent Events) — live
+  sync, see [`sync.md`](sync.md). Every change from any route is journaled.
 - `GET /api/workspace` → the workspace's name and counts.
 
 ## Suite server
@@ -127,7 +134,10 @@ axum::serve(listener, app).await?;
 - **Events.** `trackcraft_api::EventSink` receives a `CommandEvent { workspace, user, command,
   params, result }` for every successful mutating command, after the workspace lock is released.
   Standalone it is `NullSink` (or `MemorySink`); the suite's sink feeds the integration API
-  (issue unfurls, notifications in Chatcraft) and later WebSocket fan-out.
+  (issue unfurls, notifications in Chatcraft).
+- **Sync fan-out.** `trackcraft_api::SyncHub` (`publish(workspace, rev)`, `subscribe(workspace)`)
+  wakes the SSE streams after each change; standalone `LocalSyncHub`, in the suite one shared hub
+  via `Server::with_sync_hub` (what moves to `craft-collab`: [`sync.md`](sync.md)).
 - **Hosting.** `Hub` is plain data (`Arc<Hosted>` per workspace), so a suite can build it from its
   own storage instead of a directory, and later swap the file store for a database store.
 - Mounted under `/track`, request paths seen by the API are prefix-stripped by axum; set
@@ -135,6 +145,6 @@ axum::serve(listener, app).await?;
 
 ## Not yet
 
-TLS (use a reverse proxy), per-project permissions, rate limiting, WebSocket push and the
-operation-log sync of M4.2+, attachments, OAuth, and the Jira/Confluence endpoints not listed in
+TLS (use a reverse proxy), per-project permissions, rate limiting, WebSocket push, per-user
+undo through the server, a persisted journal (revisions restart with the process), attachments, OAuth, and the Jira/Confluence endpoints not listed in
 [`api-compatibility.md`](api-compatibility.md).

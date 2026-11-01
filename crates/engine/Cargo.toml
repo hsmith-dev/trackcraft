@@ -16,6 +16,7 @@ trackcraft-import.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 web-time.workspace = true
+trackcraft-sync-proto.workspace = true
 
 [lints]
 workspace = true
