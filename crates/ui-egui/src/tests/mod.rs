@@ -15,6 +15,9 @@ mod settings; // UI-7
 mod sprints; // UI-12
 mod toast; // UI-5
 mod wiki;
+mod wiki_comments; // UI-27
+mod wiki_diff; // UI-28, UI-29
+mod wiki_tree; // UI-30
 
 use egui_kittest::Harness;
 use serde_json::json;

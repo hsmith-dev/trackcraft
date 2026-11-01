@@ -202,7 +202,8 @@ pub(crate) fn view_label(app: &TrackApp, v: &View) -> Option<String> {
         View::Issues => "Issues".into(),
         View::Projects => "Projects".into(),
         View::Spaces => "Spaces".into(),
-        View::Settings(_) => "Settings".into(), // UI-7
+        View::Settings(_) => "Settings".into(),                                     // UI-7
+        View::PageDiff(id, ..) => format!("{} (compare)", ws.pages.get(id)?.title), // UI-28
     })
 }
 

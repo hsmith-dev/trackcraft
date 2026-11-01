@@ -274,6 +274,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Page(_) | View::Home | View::PageHistory(_) => None,
         View::Projects | View::Spaces => None, // UI-8
         View::Settings(_) => None,             // UI-7
+        View::PageDiff(..) => None,            // UI-28
     }
 }
 
