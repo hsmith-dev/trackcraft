@@ -68,45 +68,128 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let ws = &app.session.ws;
     let now = app.session.now();
     let mut open = None;
+    let mut sort: Option<&str> = None;
+    let sorted = crate::order::current_sort(&app.jql);
+    // Grid row 0 is the header.
+    let sel_row = app.list_sel.as_ref().and_then(|s| keys.iter().position(|k| k == s)).map(|n| n.saturating_add(1));
+    let scroll = std::mem::take(&mut app.scroll_sel);
+    let sel_fill = t.accent_soft;
     card(ui, t, "", |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-            egui::Grid::new("issue-grid").num_columns(7).spacing([14.0, 8.0]).striped(true).show(ui, |ui| {
-                for h in ["", "Key", "Summary", "Status", "Priority", "Assignee", "Updated"] {
-                    ui.label(RichText::new(h).size(12.0).color(t.muted).strong());
+            let grid = egui::Grid::new("issue-grid").num_columns(7).spacing([14.0, 8.0]).with_row_color(move |row, style| {
+                if Some(row) == sel_row {
+                    Some(sel_fill)
+                } else if row % 2 == 1 {
+                    Some(style.visuals.faint_bg_color)
+                } else {
+                    None
+                }
+            });
+            grid.show(ui, |ui| {
+                ui.label("");
+                for (h, field) in LIST_COLUMNS {
+                    let on = sorted.as_ref().filter(|(f, _)| f == field).map(|(_, desc)| *desc);
+                    let r = ui
+                        .horizontal(|ui| {
+                            let color = if on.is_some() { t.text } else { t.muted };
+                            let r = ui.add(egui::Button::new(RichText::new(h).size(12.0).color(color).strong()).frame(false));
+                            if let Some(desc) = on {
+                                sort_arrow(ui, t, desc);
+                            }
+                            r
+                        })
+                        .inner;
+                    let next = if on == Some(false) { "descending" } else { "ascending" };
+                    if r.on_hover_text(format!("Sort by {} ({next})", h.to_lowercase())).clicked() {
+                        sort = Some(field);
+                    }
                 }
                 ui.end_row();
                 for k in &keys {
                     let Some(i) = ws.issues.get(k) else { continue };
-                    icons::issue_type(ui, &i.issue_type, 16.0);
-                    if ui.link(RichText::new(i.key.to_string()).monospace()).clicked() {
-                        open = Some(i.key.clone());
-                    }
+                    let mut row = icons::issue_type(ui, &i.issue_type, 16.0).rect;
+                    let r = ui.link(RichText::new(i.key.to_string()).monospace());
+                    row = row.union(r.rect);
+                    let mut clicked = r.clicked();
                     let summary: String = if i.summary.chars().count() > 70 {
                         format!("{}…", i.summary.chars().take(69).collect::<String>())
                     } else {
                         i.summary.clone()
                     };
-                    if ui.add(egui::Label::new(summary).sense(egui::Sense::click())).on_hover_text(&i.summary).clicked() {
-                        open = Some(i.key.clone());
-                    }
-                    pill(ui, t, ws.status_category(i), &i.status);
-                    ui.horizontal(|ui| {
+                    let r = ui.add(egui::Label::new(summary).sense(egui::Sense::click())).on_hover_text(&i.summary);
+                    row = row.union(r.rect);
+                    clicked |= r.clicked();
+                    row = row.union(pill(ui, t, ws.status_category(i), &i.status).rect);
+                    let r = ui.horizontal(|ui| {
                         icons::priority(ui, t, &i.priority, priority_rank(&i.priority).unwrap_or(3), 14.0);
                         ui.label(&i.priority);
                     });
-                    ui.horizontal(|ui| {
+                    row = row.union(r.response.rect);
+                    let r = ui.horizontal(|ui| {
                         who(ui, t, ws, i.assignee.as_deref(), 18.0);
                         ui.label(name_of(ws, i.assignee.as_deref()));
                     });
-                    ui.label(RichText::new(crate::ago(now, i.updated)).color(t.muted));
+                    row = row.union(r.response.rect);
+                    row = row.union(ui.label(RichText::new(crate::ago(now, i.updated)).color(t.muted)).rect);
+                    // The rest of the row (pill, priority, assignee, the gaps) opens the issue too.
+                    let key = i.key.to_string();
+                    let whole = ui.interact(row, egui::Id::unique(("issue-row", &key)), egui::Sense::click());
+                    whole.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Open {key}")));
+                    if whole.clicked() || clicked {
+                        open = Some(i.key.clone());
+                    }
+                    if scroll && app.list_sel.as_ref() == Some(&i.key) {
+                        ui.scroll_to_rect(row, None);
+                    }
                     ui.end_row();
                 }
             });
         });
     });
+    if let Some(field) = sort {
+        app.push(Action::Search(crate::order::sort_by(&app.jql, field)));
+    }
     if let Some(k) = open {
+        app.list_sel = Some(k.clone());
         app.push(Action::Nav(View::Issue(k)));
     }
+}
+
+/// Sortable list columns: (header, JQL field).
+const LIST_COLUMNS: [(&str, &str); 6] =
+    [("Key", "key"), ("Summary", "summary"), ("Status", "status"), ("Priority", "priority"), ("Assignee", "assignee"), ("Updated", "updated")];
+
+/// A small painted triangle (the bundled font has no arrow glyphs): up for ascending.
+fn sort_arrow(ui: &mut Ui, t: &Tokens, desc: bool) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+    let c = rect.center();
+    let (tip, base) = if desc { (c.y + 3.0, c.y - 3.0) } else { (c.y - 3.0, c.y + 3.0) };
+    let pts = vec![egui::pos2(c.x, tip), egui::pos2(c.x - 4.0, base), egui::pos2(c.x + 4.0, base)];
+    ui.painter().add(egui::Shape::convex_polygon(pts, t.accent, egui::Stroke::NONE));
+}
+
+/// The board's columns in workflow order: (status, category, card keys in display order),
+/// after the board's filters. Drawing and keyboard navigation share it.
+pub(crate) fn board_columns(app: &TrackApp, key: &ProjectKey) -> Vec<(String, StatusCategory, Vec<IssueKey>)> {
+    let Ok(project) = app.session.ws.project(key.as_str()) else { return vec![] };
+    let me = app.session.user.as_str();
+    let needle = app.board_text.to_lowercase();
+    let mut cards: Vec<&Issue> = app
+        .session
+        .ws
+        .issues
+        .values()
+        .filter(|i| &i.key.project == key)
+        .filter(|i| !app.board_mine || i.assignee.as_deref() == Some(me))
+        .filter(|i| needle.is_empty() || i.summary.to_lowercase().contains(&needle) || i.key.to_string().to_lowercase().contains(&needle))
+        .collect();
+    cards.sort_by_key(|i| (priority_rank(&i.priority).unwrap_or(9), i.key.number));
+    project
+        .workflow
+        .statuses
+        .iter()
+        .map(|s| (s.name.clone(), s.category, cards.iter().filter(|i| i.status.eq_ignore_ascii_case(&s.name)).map(|i| i.key.clone()).collect()))
+        .collect()
 }
 
 pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
@@ -114,7 +197,6 @@ pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKe
         ui.label("This project no longer exists.");
         return;
     };
-    let statuses: Vec<(String, StatusCategory)> = project.workflow.statuses.iter().map(|s| (s.name.clone(), s.category)).collect();
     let pname = project.name.clone();
     ui.horizontal(|ui| {
         ui.heading(RichText::new(format!("{pname} board")).size(22.0));
@@ -128,30 +210,23 @@ pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKe
     ui.horizontal(|ui| {
         ui.add(egui::TextEdit::singleline(&mut app.board_text).hint_text("Filter cards").desired_width(200.0));
         ui.toggle_value(&mut app.board_mine, "Only my issues");
-        ui.label(RichText::new("Drag a card to another column to move it through the workflow.").color(t.muted).size(12.0));
+        let hint = "Drag a card to another column, or select it with the arrow keys and press Shift+Right. Press ? for all shortcuts.";
+        ui.label(RichText::new(hint).color(t.muted).size(12.0));
     });
     ui.add_space(8.0);
 
+    let columns = board_columns(app, key);
+    let scroll = std::mem::take(&mut app.scroll_sel);
+    let selected = app.board_sel.clone();
     let ws = &app.session.ws;
-    let me = app.session.user.clone();
-    let needle = app.board_text.to_lowercase();
-    let cards: Vec<&Issue> = ws
-        .issues
-        .values()
-        .filter(|i| &i.key.project == key)
-        .filter(|i| !app.board_mine || i.assignee.as_deref() == Some(me.as_str()))
-        .filter(|i| needle.is_empty() || i.summary.to_lowercase().contains(&needle) || i.key.to_string().to_lowercase().contains(&needle))
-        .collect();
-    let mut sorted = cards;
-    sorted.sort_by_key(|i| (priority_rank(&i.priority).unwrap_or(9), i.key.number));
 
     let mut moved: Option<(IssueKey, String)> = None;
     let mut open: Option<IssueKey> = None;
-    let col_w = ((ui.available_width() - 12.0 * statuses.len().saturating_sub(1) as f32) / statuses.len().max(1) as f32).clamp(220.0, 320.0);
+    let col_w = ((ui.available_width() - 12.0 * columns.len().saturating_sub(1) as f32) / columns.len().max(1) as f32).clamp(220.0, 320.0);
     egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
         ui.horizontal_top(|ui| {
-            for (status, cat) in &statuses {
-                let in_col: Vec<&&Issue> = sorted.iter().filter(|i| i.status.eq_ignore_ascii_case(status)).collect();
+            for (status, cat, col_keys) in &columns {
+                let in_col: Vec<&Issue> = col_keys.iter().filter_map(|k| ws.issues.get(k)).collect();
                 let frame = egui::Frame::new().fill(t.surface_alt).corner_radius(10).inner_margin(10);
                 let (resp, dropped) = ui.dnd_drop_zone::<IssueKey, ()>(frame, |ui| {
                     // The row of columns is horizontal; each column stacks its cards vertically.
@@ -166,9 +241,13 @@ pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKe
                         egui::ScrollArea::vertical().id_salt(("col", status)).auto_shrink([false, false]).show(ui, |ui| {
                             for i in in_col {
                                 let id = egui::Id::unique(("card", i.key.to_string()));
-                                let r = ui.dnd_drag_source(id, i.key.clone(), |ui| card_body(ui, t, ws, i, col_w)).response;
+                                let sel = selected.as_ref() == Some(&i.key);
+                                let r = ui.dnd_drag_source(id, i.key.clone(), |ui| card_body(ui, t, ws, i, col_w, sel)).response;
                                 if r.clicked() {
                                     open = Some(i.key.clone());
+                                }
+                                if sel && scroll {
+                                    r.scroll_to_me(None);
                                 }
                                 ui.add_space(6.0);
                             }
@@ -187,15 +266,21 @@ pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKe
     if let Some((k, to)) = moved
         && app.session.ws.issues.get(&k).is_some_and(|i| !i.status.eq_ignore_ascii_case(&to))
     {
-        app.push(Action::Run { id: "issue.transition", params: json!({"key": k.to_string(), "to": to}), then: Then::Toast(format!("{k} → {to}")) });
+        app.push(Action::Run {
+            id: "issue.transition",
+            params: json!({"key": k.to_string(), "to": to}),
+            then: Then::Toast(format!("{k} moved to {to}")),
+        });
     }
     if let Some(k) = open {
+        app.board_sel = Some(k.clone());
         app.push(Action::Nav(View::Issue(k)));
     }
 }
 
-fn card_body(ui: &mut Ui, t: &Tokens, ws: &Workspace, i: &Issue, w: f32) {
-    egui::Frame::new().fill(t.surface).stroke(egui::Stroke::new(1.0, t.border)).corner_radius(8).inner_margin(10).show(ui, |ui| {
+fn card_body(ui: &mut Ui, t: &Tokens, ws: &Workspace, i: &Issue, w: f32, selected: bool) {
+    let (fill, stroke) = if selected { (t.accent_soft, egui::Stroke::new(2.0, t.accent)) } else { (t.surface, egui::Stroke::new(1.0, t.border)) };
+    egui::Frame::new().fill(fill).stroke(stroke).corner_radius(8).inner_margin(10).show(ui, |ui| {
         ui.set_width(w - 20.0);
         ui.add(egui::Label::new(&i.summary).wrap());
         ui.add_space(6.0);
@@ -290,20 +375,23 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
     let mut acts: Vec<Action> = Vec::new();
     ui.horizontal(|ui| {
         ui.label(RichText::new("Description").strong());
-        if app.issue_ui.editing_description.is_none() && ui.small_button("Edit").clicked() {
+        if app.issue_ui.editing_description.is_none() && ui.small_button("Edit").on_hover_text("Edit the description (E)").clicked() {
             app.issue_ui.editing_description = Some(issue.description.to_markdown());
         }
     });
     let mut end_edit = false;
     match app.issue_ui.editing_description.as_mut() {
         Some(text) => {
-            ui.add(
+            let r = ui.add(
                 egui::TextEdit::multiline(text)
                     .desired_rows(8)
                     .desired_width(f32::INFINITY)
                     .font(egui::TextStyle::Monospace)
                     .hint_text("Markdown: **bold**, *italic*, - lists, ## headings"),
             );
+            if std::mem::take(&mut app.issue_ui.focus_description) {
+                r.request_focus();
+            }
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
                     end_edit = true;
@@ -375,7 +463,13 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
         let name = name_of(ws, Some(&me));
         icons::avatar(ui, t, &me, &name, 26.0);
         ui.vertical(|ui| {
-            ui.add(egui::TextEdit::multiline(&mut app.issue_ui.comment).desired_rows(2).desired_width(f32::INFINITY).hint_text("Add a comment…"));
+            let r = ui.add(
+                egui::TextEdit::multiline(&mut app.issue_ui.comment).desired_rows(2).desired_width(f32::INFINITY).hint_text("Add a comment… (M)"),
+            );
+            if std::mem::take(&mut app.issue_ui.focus_comment) {
+                r.request_focus();
+                r.scroll_to_me(None);
+            }
             if !app.issue_ui.comment.trim().is_empty() && ui.button("Save comment").clicked() {
                 let body = std::mem::take(&mut app.issue_ui.comment);
                 acts.push(Action::Run { id: "issue.comment", params: json!({"key": k, "body": body}), then: Then::Nothing });
@@ -464,7 +558,9 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
                         .response
                         .labelled_by(l_assignee);
                 });
-                if issue.assignee.as_deref() != Some(app.session.user.as_str()) && ui.link(RichText::new("Assign to me").size(12.0)).clicked() {
+                if issue.assignee.as_deref() != Some(app.session.user.as_str())
+                    && ui.link(RichText::new("Assign to me").size(12.0)).on_hover_text("Assign to me (A)").clicked()
+                {
                     acts.push(Action::Run { id: "issue.assignToMe", params: json!({"key": k}), then: Then::Nothing });
                 }
             });
