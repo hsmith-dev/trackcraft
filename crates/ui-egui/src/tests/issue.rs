@@ -9,7 +9,7 @@ fn issue_keys_assign_comment_and_edit() {
     h.state_mut().navigate(View::Issue(key("LUME-3")));
     h.run_steps(3);
     assert_ne!(h.state().session.ws.issues[&key("LUME-3")].assignee.as_deref(), Some("riley"));
-    h.key_press(egui::Key::A);
+    h.key_press(egui::Key::I);
     h.run_steps(2);
     assert_eq!(h.state().session.ws.issues[&key("LUME-3")].assignee.as_deref(), Some("riley"));
     // `m` focuses the comment box; typing there is text, not shortcuts.

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use trackcraft_core::IssueKey;
 
 use crate::theme::Tokens;
-use crate::{Action, Then, TrackApp, View};
+use crate::{Action, Then, TrackApp, View, keys};
 
 #[derive(Debug, Default)]
 pub(crate) struct Palette {
@@ -58,7 +58,8 @@ fn entries(app: &TrackApp, q: &str) -> Vec<Entry> {
     out
 }
 
-fn context_params(app: &TrackApp) -> Value {
+/// The current view as command params (also the fallback for shortcuts in `keys.rs`).
+pub(crate) fn context_params(app: &TrackApp) -> Value {
     match &app.view {
         View::Issue(k) => json!({"key": k.to_string(), "project": k.project.to_string()}),
         View::Page(id) | View::PageHistory(id) => {
@@ -98,16 +99,20 @@ pub(crate) fn show(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
         ui.add_space(6.0);
         egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
             for (n, e) in list.iter().enumerate().take(60) {
-                let (label, kind) = match e {
-                    Entry::Go(_, l) => (l.as_str(), "go"),
-                    Entry::Cmd(id, l) => (l.as_str(), *id),
-                    Entry::Help(l) => (l.as_str(), "?"),
+                let (label, kind, shortcut) = match e {
+                    Entry::Go(_, l) => (l.as_str(), "go", None),
+                    Entry::Cmd(id, l) => (l.as_str(), *id, keys::shortcut_for(app, keys::Act::Cmd(id))),
+                    Entry::Help(l) => (l.as_str(), "", keys::shortcut_for(app, keys::Act::Help)),
                 };
                 let sel = n == pal.selected;
                 let r = ui.horizontal(|ui| {
                     let r = ui.selectable_label(sel, label);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(kind).monospace().size(11.0).color(t.muted))
+                        // The shortcut in the current view, as text, right-aligned.
+                        if let Some(s) = &shortcut {
+                            keys::key_chip(ui, t, s);
+                        }
+                        ui.label(RichText::new(kind).monospace().size(11.0).color(t.muted));
                     });
                     r
                 });
