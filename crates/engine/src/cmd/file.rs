@@ -8,6 +8,7 @@ use trackcraft_model::Workspace;
 pub fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("workspace.new", "New Workspace", "File", ws_new).params(r#"{"name": "Acme"}"#).query(),
+        CommandSpec::new("workspace.rename", "Rename Workspace", "Admin › Workspace", ws_rename).params(r#"{"name": "Acme"}"#),
         CommandSpec::new("workspace.info", "Workspace Info", "File", ws_info).query(),
         CommandSpec::new("file.open", "Open…", "File", file_open).key("Mod+O").params(r#"{"path": "work.track"}"#).query(),
         CommandSpec::new("file.save", "Save", "File", file_save)
@@ -17,6 +18,8 @@ pub fn commands() -> Vec<CommandSpec> {
         CommandSpec::new("edit.undo", "Undo", "Edit", undo).key("Mod+Z").when(|s| (!s.can_undo()).then_some("nothing to undo")).query(),
         CommandSpec::new("edit.redo", "Redo", "Edit", redo).key("Mod+Shift+Z").when(|s| (!s.can_redo()).then_some("nothing to redo")).query(),
         CommandSpec::new("user.add", "Add User", "Admin › Users", user_add).params(r#"{"id": "ann", "name": "Ann Lee"}"#),
+        CommandSpec::new("user.edit", "Edit User", "Admin › Users", user_edit)
+            .params(r#"{"id": "ann", "name": "Ann Lee", "email": "ann@example.com" | null (each optional; the id never changes)}"#),
         CommandSpec::new("user.list", "Users", "Admin › Users", user_list).query(),
         CommandSpec::new("user.switch", "Act As User", "Admin › Users", user_switch).params(r#"{"id": "ann"}"#).query(),
         CommandSpec::new("app.commands", "Command List", "Help", app_commands).key("Mod+Shift+P").query(),
@@ -36,6 +39,11 @@ fn ws_new(s: &mut Session, p: &Value) -> CmdResult {
     s.path = None;
     s.reset_history();
     Ok(json!({"name": name}))
+}
+
+fn ws_rename(s: &mut Session, p: &Value) -> CmdResult {
+    s.ws.rename(params::str(p, "name")?).map_err(|e| e.to_string())?;
+    Ok(json!({"name": s.ws.name}))
 }
 
 fn ws_info(s: &mut Session, _: &Value) -> CmdResult {
@@ -90,8 +98,29 @@ fn user_add(s: &mut Session, p: &Value) -> CmdResult {
     Ok(json!({"id": id.trim()}))
 }
 
+fn user_edit(s: &mut Session, p: &Value) -> CmdResult {
+    let id = params::str(p, "id")?;
+    let name = params::opt_str(p, "name")?;
+    let email = match p.get("email") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(e)) => Some(Some(e.as_str())),
+        Some(_) => return Err("\"email\" must be a string or null".into()),
+    };
+    if name.is_none() && email.is_none() {
+        return Err("nothing to change: pass name or email".into());
+    }
+    s.ws.edit_user(id, name, email).map_err(|e| e.to_string())?;
+    let u = s.ws.user(id).map_err(|e| e.to_string())?;
+    Ok(user_json(u))
+}
+
+fn user_json(u: &trackcraft_model::User) -> Value {
+    json!({"id": u.id, "name": u.display_name, "email": u.email})
+}
+
 fn user_list(s: &mut Session, _: &Value) -> CmdResult {
-    Ok(Value::Array(s.ws.users.values().map(|u| json!({"id": u.id, "name": u.display_name})).collect()))
+    Ok(Value::Array(s.ws.users.values().map(user_json).collect()))
 }
 
 fn user_switch(s: &mut Session, p: &Value) -> CmdResult {

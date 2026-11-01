@@ -86,6 +86,8 @@ pub struct Session {
     pub dirty: bool,
     undo: Vec<Workspace>,
     redo: Vec<Workspace>,
+    /// Bumped on every change to the workspace (see [`Session::revision`]).
+    revision: u64,
     clock: fn() -> Timestamp,
 }
 
@@ -97,7 +99,7 @@ pub fn system_now() -> Timestamp {
 
 impl Session {
     pub fn new(ws: Workspace, user: &str) -> Self {
-        Session { ws, user: user.to_string(), path: None, dirty: false, undo: vec![], redo: vec![], clock: system_now }
+        Session { ws, user: user.to_string(), path: None, dirty: false, undo: vec![], redo: vec![], revision: 0, clock: system_now }
     }
 
     /// A session on the sample workspace, acting as its first user.
@@ -122,6 +124,27 @@ impl Session {
     }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
+    }
+
+    /// A change counter: it rises on every mutating command that changed the workspace, every
+    /// undo and redo, and when a workspace is opened or created. Autosave waits until it stops
+    /// moving; a UI compares it to know when its cached views are stale.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// How many steps `edit.undo` can take (a toast's Undo is live while this is unchanged).
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// How many steps `edit.redo` can take.
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
+    fn bump(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// Runs a command by id. A failing command leaves the workspace exactly as it was; an escaped
@@ -151,6 +174,7 @@ impl Session {
                     }
                     self.redo.clear();
                     self.dirty = true;
+                    self.bump();
                 }
                 Ok(_) => {}
                 Err(_) => self.ws = before,
@@ -164,6 +188,7 @@ impl Session {
             Some(prev) => {
                 self.redo.push(std::mem::replace(&mut self.ws, prev));
                 self.dirty = true;
+                self.bump();
                 true
             }
             None => false,
@@ -175,6 +200,7 @@ impl Session {
             Some(next) => {
                 self.undo.push(std::mem::replace(&mut self.ws, next));
                 self.dirty = true;
+                self.bump();
                 true
             }
             None => false,
@@ -186,6 +212,7 @@ impl Session {
         self.undo.clear();
         self.redo.clear();
         self.dirty = false;
+        self.bump();
     }
 }
 

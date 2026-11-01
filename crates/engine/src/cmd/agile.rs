@@ -32,14 +32,14 @@ pub fn commands() -> Vec<CommandSpec> {
             r#"{"project": "LUME", "name": "default: LUME Sprint N", "goal": "…", "startDate": "2026-11-03", "endDate": "2026-11-14" (each optional; dates YYYY-MM-DD or RFC 3339)}"#,
         ),
         CommandSpec::new("sprint.edit", "Edit Sprint", "Project › Backlog", sprint_edit)
-            .params(r#"{"id": 7, "name": "…", "goal": "…", "startDate": "2026-11-03", "endDate": "2026-11-14" (each optional; a closed sprint keeps its dates)}"#),
+            .params(r#"{"id": 7, "name": "…", "goal": "…", "startDate": "2026-11-03" | null, "endDate": "2026-11-14" | null (each optional; null clears a future sprint's date; a closed sprint keeps its dates)}"#),
         CommandSpec::new("sprint.delete", "Delete Sprint", "Project › Backlog", sprint_delete)
             .params(r#"{"id": 7} (its issues return to the backlog; a closed sprint can't be deleted)"#),
         CommandSpec::new("sprint.start", "Start Sprint", "Project › Backlog", sprint_start).params(
-            r#"{"id": 7, "startDate": "2026-11-03", "endDate": "2026-11-17", "goal": "…" (optional)} (one active sprint per project; needs an issue that isn't done)"#,
+            r#"{"id": 7, "startDate": "2026-11-03", "endDate": "2026-11-17", "name": "…", "goal": "…" (name and goal optional)} (one active sprint per project; needs an issue that isn't done)"#,
         ),
         CommandSpec::new("sprint.complete", "Complete Sprint", "Project › Backlog", sprint_complete)
-            .params(r#"{"id": 7, "moveOpenTo": 8 | "new" | "backlog"} (done issues stay with the closed sprint; open ones move)"#),
+            .params(r#"{"id": 7, "moveOpenTo": 8 | "new" | "backlog"} (done issues stay with the closed sprint; open ones move; refused while a done issue has open sub-tasks)"#),
     ]
 }
 
@@ -151,8 +151,8 @@ fn sprint_edit(s: &mut Session, p: &Value) -> CmdResult {
     let edit = SprintEdit {
         name: params::opt_str(p, "name")?.map(str::to_string),
         goal: params::opt_str(p, "goal")?.map(str::to_string),
-        start: params::opt_date(p, "startDate")?,
-        end: params::opt_date(p, "endDate")?,
+        start: clearable_date(p, "startDate")?,
+        end: clearable_date(p, "endDate")?,
     };
     if edit.name.is_none() && edit.goal.is_none() && edit.start.is_none() && edit.end.is_none() {
         return Err("nothing to change: pass name, goal, startDate or endDate".into());
@@ -160,6 +160,15 @@ fn sprint_edit(s: &mut Session, p: &Value) -> CmdResult {
     s.ws.edit_sprint(id, edit).map_err(err)?;
     let sp = s.ws.sprint(id).map_err(err)?;
     Ok(view::sprint(&s.ws, sp))
+}
+
+/// Absent = keep (`None`), `null` = clear (`Some(None)`), a date = set.
+fn clearable_date(p: &Value, k: &str) -> Result<Option<Option<trackcraft_model::Timestamp>>, String> {
+    match p.get(k) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(_) => params::opt_date(p, k).map(Some),
+    }
 }
 
 fn sprint_delete(s: &mut Session, p: &Value) -> CmdResult {
@@ -173,7 +182,7 @@ fn sprint_start(s: &mut Session, p: &Value) -> CmdResult {
     let id = sprint_id(p)?;
     let start = params::date(p, "startDate")?;
     let end = params::date(p, "endDate")?;
-    s.ws.start_sprint(id, start, end, params::opt_str(p, "goal")?).map_err(err)?;
+    s.ws.start_sprint(id, params::opt_str(p, "name")?, start, end, params::opt_str(p, "goal")?).map_err(err)?;
     let sp = s.ws.sprint(id).map_err(err)?;
     Ok(view::sprint(&s.ws, sp))
 }

@@ -8,9 +8,9 @@
 | 1 | UI polish from [`ui-plan.md`](ui-plan.md): toasts with Undo + status bar (UI-5), empty/hostile-data states (UI-6), settings (UI-7), sidebar scaling (UI-8), issue view polish (UI-9), Open Recent menu, dirty-on-close prompt, Alt+Left while typing on macOS | control channel, autosave, recents and keyboard nav landed 2026-10-31 | M1 |
 | 2 | Server as a mountable library + identity/event-bus traits, so the optional suite server can host TrackCraft and Chatcraft together | decided 2026-10-31 (architecture §1); design before M4 code | M4 |
 | 3 | Snapshot undo is O(workspace) per change; no op log | needed for activity history, sync and large workspaces | M2/M4 |
-| 4 | Sprint follow-ups: completing a sprint with a Done parent and open sub-tasks is allowed (Jira refuses); `sprint.start` takes no name; `issue.create` takes no sprint (inline create is two undo steps); `sprint.edit` can't clear dates; sprint-board keyboard navigation walks the whole project's cards | backlog, rank and sprints landed 2026-10-31 (M2.2, UI-11/12) | M2 |
+| 4 | Sprint follow-ups: sprint-board keyboard navigation walks the whole project's cards (UI) | backlog, rank and sprints landed 2026-10-31 (M2.2, UI-11/12); completion guard, start name, create-in-sprint and date clearing landed (M2.3) | M2 |
 | 5 | Rich-text editing is plain text in, ADF/Markdown out; no tables, panels, tasks | Confluence pages need them | M1/M3 |
-| 6 | History gaps: deletes don't record link/parent removals on other issues; no parent/type edit commands; `WAS`/`CHANGED` only for status, assignee, priority; no activity tab in the UI | history + `WAS`/`CHANGED` landed 2026-10-31 (M2.1) | M2 |
+| 6 | History gaps: `WAS`/`CHANGED` only for status, assignee, priority; no activity tab in the UI | history + `WAS`/`CHANGED` landed 2026-10-31 (M2.1); delete history, type/parent edits, unlink, comment edit landed (M2.3) | M2 |
 | 7 | No import from Jira/Confluence | the migration path | M5 |
 | 8 | No REST compatibility | existing scripts and integrations | M5 |
 | 9 | No custom fields, components, versions | most real projects use them | M2 |

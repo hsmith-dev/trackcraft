@@ -24,7 +24,7 @@ pub fn issue(ws: &Workspace, i: &Issue) -> Value {
         "created": i.created.to_rfc3339(),
         "updated": i.updated.to_rfc3339(),
         "resolved": i.resolved.map(|t| t.to_rfc3339()),
-        "comments": i.comments.iter().map(|c| json!({"id": c.id.0, "author": c.author, "body": c.body.to_markdown(), "created": c.created.to_rfc3339()})).collect::<Vec<_>>(),
+        "comments": i.comments.iter().map(|c| json!({"id": c.id.0, "author": c.author, "body": c.body.to_markdown(), "created": c.created.to_rfc3339(), "updated": c.updated.to_rfc3339()})).collect::<Vec<_>>(),
         "links": i.links.iter().map(|l| json!({"type": l.kind.outward(), "key": l.target.to_string()})).collect::<Vec<_>>(),
         "history": history_groups(i).len(),
         "rank": i.rank,

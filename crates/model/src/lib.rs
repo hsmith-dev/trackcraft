@@ -155,6 +155,33 @@ impl Workspace {
         Ok(())
     }
 
+    /// Renames the workspace (a title: 1–255 characters, one line).
+    pub fn rename(&mut self, name: &str) -> Result<()> {
+        self.name = title(name, "the workspace name")?;
+        Ok(())
+    }
+
+    /// Changes a user's display name and/or email. `email: Some(None)` (or an empty string)
+    /// clears it. The id never changes: history and JQL refer to it.
+    pub fn edit_user(&mut self, id: &str, display_name: Option<&str>, email: Option<Option<&str>>) -> Result<()> {
+        let name = display_name.map(|n| title(n, "the user's name")).transpose()?;
+        let email = match email {
+            None => None,
+            Some(e) => Some(match e.map(str::trim).filter(|e| !e.is_empty()) {
+                None => None,
+                Some(e) => Some(check_email(e)?),
+            }),
+        };
+        let u = self.users.get_mut(id).ok_or_else(|| ModelError::NoSuchUser(clip(id, 128)))?;
+        if let Some(n) = name {
+            u.display_name = n;
+        }
+        if let Some(e) = email {
+            u.email = e;
+        }
+        Ok(())
+    }
+
     pub fn user(&self, id: &str) -> Result<&User> {
         self.users.get(id).ok_or_else(|| ModelError::NoSuchUser(id.to_string()))
     }
@@ -194,6 +221,26 @@ pub fn labels(input: &[String]) -> Result<Vec<String>> {
         return Err(ModelError::Invalid(format!("at most {MAX_LABELS} labels")));
     }
     Ok(out)
+}
+
+/// Longest email address accepted (RFC 5321's path limit).
+pub const MAX_EMAIL: usize = 254;
+
+/// A plausible email address: one `@` with text on both sides, a dot inside the domain, no
+/// spaces or control characters, at most [`MAX_EMAIL`] characters. Deliverability isn't checked.
+fn check_email(e: &str) -> Result<String> {
+    let bad = || ModelError::Invalid(format!("'{}' is not an email address", clip(e, 40)));
+    if e.chars().count() > MAX_EMAIL || e.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(bad());
+    }
+    match e.split_once('@') {
+        Some((local, domain))
+            if !local.is_empty() && !domain.contains('@') && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.') =>
+        {
+            Ok(e.to_string())
+        }
+        _ => Err(bad()),
+    }
 }
 
 fn clip(s: &str, max: usize) -> String {
