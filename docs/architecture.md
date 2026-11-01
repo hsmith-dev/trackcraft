@@ -53,6 +53,7 @@ To make that possible without coupling the apps:
 | L1 | `trackcraft-jql` | JQL lexer → parser → AST → evaluator over a `Record` trait; `ORDER BY` sort | chrono |
 | L2 | `trackcraft-model` | `Workspace` and validated edit primitives for tracker and wiki; `IssueRecord` (issues as JQL records) | core, markup, jql |
 | L3 | `trackcraft-store` | `.track` format: versioned JSON envelope, schema migration hook, size cap, atomic save | model |
+| L3 | `trackcraft-import` | Jira CSV / REST v3 JSON and Confluence HTML export / storage-format importers ([`import.md`](import.md)) | core, markup, model, zip |
 | L4 | `trackcraft-engine` | `Session` (workspace, acting user, undo/redo, clock), `CommandSpec` registry, catalog, sample | all of the above |
 | L5 | `trackcraft-mcp` | MCP over JSON-RPC (stdio today), two tools: `trackcraft_commands`, `trackcraft_run` | engine |
 | L5 | `trackcraft-api` (M5) | Jira/Confluence-compatible REST routes mapped onto commands | engine |

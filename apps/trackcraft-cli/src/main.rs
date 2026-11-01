@@ -24,6 +24,9 @@ commands:
   jql [--in F | --sample] [--as USER] '<query>'
                                    search issues and print KEY  STATUS  SUMMARY lines
   new <file.track> [--sample]      create a workspace file (empty, or the sample)
+  import --into F (--jira-csv EXPORT.csv | --jira-json PAGE.json | --confluence DIR|ZIP|PAGE [--space KEY]) [--as USER]
+                                   import a Jira or Confluence export into F (created if missing),
+                                   save it atomically and print the report (see docs/import.md)
   mcp [--in F | --sample] [--as USER]
                                    serve the MCP protocol on stdio (saves to --in after each change)
   send <port> <method> ['{json}']  send one control request to a running desktop app
@@ -146,6 +149,7 @@ fn real_main(args: &[String]) -> Result<(), String> {
             trackcraft_store::save(&ws, std::path::Path::new(path)).map_err(|e| e.to_string())?;
             println!("{path}");
         }
+        "import" => import(&o)?,
         "mcp" => {
             let s = session(&o)?;
             let mut server = trackcraft_mcp::Server::new(s);
@@ -182,6 +186,62 @@ fn real_main(args: &[String]) -> Result<(), String> {
         "help" | "--help" | "-h" => print!("{USAGE}"),
         other => return Err(format!("unknown command '{other}'\n\n{USAGE}")),
     }
+    Ok(())
+}
+
+/// `import --into F (--jira-csv P | --jira-json P | --confluence P [--space KEY]) [--as USER]`.
+fn import(o: &Opts) -> Result<(), String> {
+    let mut into: Option<PathBuf> = None;
+    let mut source: Option<(trackcraft_import::Kind, PathBuf)> = None;
+    let mut space: Option<String> = None;
+    let mut it = o.rest.iter();
+    while let Some(a) = it.next() {
+        let mut val = |name: &str| it.next().cloned().ok_or_else(|| format!("{name} needs a value"));
+        let kind = match a.as_str() {
+            "--into" => {
+                into = Some(PathBuf::from(val("--into")?));
+                continue;
+            }
+            "--space" => {
+                space = Some(val("--space")?);
+                continue;
+            }
+            "--jira-csv" => trackcraft_import::Kind::JiraCsv,
+            "--jira-json" => trackcraft_import::Kind::JiraJson,
+            "--confluence" => trackcraft_import::Kind::Confluence,
+            other => return Err(format!("import: unknown option '{other}'")),
+        };
+        if source.is_some() {
+            return Err("import: pass one of --jira-csv, --jira-json or --confluence".into());
+        }
+        source = Some((kind, PathBuf::from(val(a)?)));
+    }
+    let into = into.or_else(|| o.input.clone()).ok_or("import: pass --into <file.track>")?;
+    let (kind, path) = source.ok_or("import: pass --jira-csv, --jira-json or --confluence <path>")?;
+    if space.is_some() && kind != trackcraft_import::Kind::Confluence {
+        return Err("import: --space only applies to --confluence".into());
+    }
+    let mut ws = if into.exists() {
+        trackcraft_store::load(&into).map_err(|e| format!("{}: {e}", into.display()))?
+    } else {
+        let name = into.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Imported workspace".into());
+        let mut ws = trackcraft_engine::model::Workspace::default();
+        ws.rename(&name).map_err(|e| e.to_string())?;
+        ws
+    };
+    let user = o.user.clone().or_else(|| ws.users.keys().next().cloned()).unwrap_or_else(|| "importer".into());
+    let actor = trackcraft_import::Actor { user: &user, now: trackcraft_engine::system_now() };
+    let report = trackcraft_import::import_path(&mut ws, kind, &path, space.as_deref(), actor).map_err(|e| format!("import: {e}"))?;
+    trackcraft_store::save(&ws, &into).map_err(|e| format!("{}: {e}", into.display()))?;
+    println!("{}", pretty(&report.to_json()));
+    eprintln!(
+        "imported {} issue(s), {} page(s), {} user(s) into {} ({} warning(s))",
+        report.issues,
+        report.pages,
+        report.users.len(),
+        into.display(),
+        report.warnings.len().saturating_add(report.more_warnings)
+    );
     Ok(())
 }
 

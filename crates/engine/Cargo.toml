@@ -12,6 +12,7 @@ trackcraft-markup.workspace = true
 trackcraft-jql.workspace = true
 trackcraft-model.workspace = true
 trackcraft-store.workspace = true
+trackcraft-import.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 web-time.workspace = true

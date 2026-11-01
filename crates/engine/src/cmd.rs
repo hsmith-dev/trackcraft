@@ -2,6 +2,7 @@
 
 mod agile;
 mod file;
+mod import;
 mod issue;
 mod wiki;
 
@@ -13,5 +14,6 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(issue::commands());
     v.extend(agile::commands());
     v.extend(wiki::commands());
+    v.extend(import::commands());
     v
 }

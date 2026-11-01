@@ -142,8 +142,8 @@ pub const FEATURES: &[Feature] = &[
     f("Both", "Platform", "Jira issue ↔ page links", ""),
     f("Both", "Platform", "Jira REST API v3 compatibility", ""),
     f("Both", "Platform", "Confluence REST API v2 compatibility", ""),
-    f("Both", "Platform", "Import Jira CSV / JSON export", ""),
-    f("Both", "Platform", "Import Confluence space export", ""),
+    f("Both", "Platform", "Import Jira CSV / JSON export", "workspace.import"),
+    f("Both", "Platform", "Import Confluence space export", "workspace.import"),
     f("Both", "Platform", "Webhooks", ""),
     f("Both", "Platform", "Multi-user server with real-time sync", ""),
 ];
