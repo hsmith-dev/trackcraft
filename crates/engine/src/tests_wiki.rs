@@ -307,9 +307,51 @@ fn move_before_and_after_siblings() {
     fails(&mut s, "page.move", json!({"id": cache, "before": home}));
     fails(&mut s, "page.move", json!({"id": cache, "parent": home, "before": sync}));
     fails(&mut s, "page.move", json!({"id": arch, "after": sync})); // into its own subtree
-    let team = page_id(&s, "Onboarding");
-    fails(&mut s, "page.move", json!({"id": cache, "after": team})); // another space
     fails(&mut s, "page.move", json!({"id": cache}));
+}
+
+#[test]
+fn move_page_across_spaces() {
+    let mut s = session();
+    let arch = page_id(&s, "Architecture overview");
+    let sync = page_id(&s, "Sync protocol");
+    let onboarding = page_id(&s, "Onboarding");
+    let team_home = s.ws.space("TEAM").map(|sp| sp.homepage.0).unwrap_or(0);
+    run(&mut s, "page.comment", json!({"id": sync, "body": "keep this"}));
+    run(&mut s, "page.edit", json!({"id": sync, "body": "v2"}));
+
+    // `space` alone: under the space's home, with the whole subtree, comments and history.
+    let r = run(&mut s, "page.move", json!({"id": arch, "space": "team"}));
+    assert_eq!((r["space"].clone(), r["parentId"].clone(), r["pages"].clone()), (json!("TEAM"), json!(team_home), json!(3)));
+    for id in [arch, sync, page_id(&s, "Offline cache")] {
+        assert_eq!(s.ws.page(trackcraft_core::Id(id)).map(|p| p.space.as_str().to_string()).unwrap_or_default(), "TEAM");
+    }
+    assert_eq!(run(&mut s, "page.comments", json!({"id": sync}))["total"], 1);
+    assert_eq!(run(&mut s, "page.history", json!({"id": sync})).as_array().map(Vec::len), Some(2));
+    assert_eq!(run(&mut s, "page.search", json!({"text": "operation log", "space": "TEAM"})).as_array().map(Vec::len), Some(0));
+    assert!(titles_under(&s, team_home).contains(&"Architecture overview".to_string()));
+    // One undo step puts everything back.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.ws.page(trackcraft_core::Id(sync)).map(|p| p.space.as_str().to_string()).unwrap_or_default(), "ENG");
+
+    // A sibling in another space works without `space` (the sibling says where).
+    let r = run(&mut s, "page.move", json!({"id": sync, "after": onboarding}));
+    assert_eq!(r["space"], "TEAM");
+    run(&mut s, "edit.undo", json!({}));
+    // ... and `space` must agree with parent/before/after.
+    let e = fails(&mut s, "page.move", json!({"id": sync, "space": "ENG", "after": onboarding}));
+    assert!(e.contains("not in space ENG"), "{e}");
+    fails(&mut s, "page.move", json!({"id": sync, "space": "NOPE"}));
+    // A space's home never moves.
+    let eng_home = s.ws.space("ENG").map(|sp| sp.homepage.0).unwrap_or(0);
+    fails(&mut s, "page.move", json!({"id": eng_home, "space": "TEAM"}));
+
+    // A title already taken in the target space is refused, naming the clash.
+    run(&mut s, "page.create", json!({"space": "TEAM", "title": "offline cache"}));
+    let e = fails(&mut s, "page.move", json!({"id": arch, "space": "TEAM"}));
+    assert!(e.contains("offline cache") && e.contains("TEAM") && e.contains("Offline cache"), "{e}");
+    // Moving back and forth within the same space is unaffected by its own titles.
+    run(&mut s, "page.move", json!({"id": sync, "space": "ENG"}));
 }
 
 /// The wiki commands fed junk shaped like their own params: never a panic, and a failed
@@ -333,6 +375,9 @@ fn hostile_wiki_params_never_panic() {
         json!({"id": 2, "parent": 2, "before": 2, "after": 3, "children": "x"}),
         json!({"id": 2, "before": u64::MAX}),
         json!({"id": 2, "after": "nope", "parent": null}),
+        json!({"id": 2, "space": "TEAM", "parent": u64::MAX}),
+        json!({"id": 2, "space": ["TEAM"], "before": 1}),
+        json!({"id": 2, "space": "\u{0}", "after": 2}),
         json!({"id": 2, "title": "\u{0}", "space": "x".repeat(10_000), "children": true}),
         json!({"id": 2, "title": "t".repeat(10_000), "children": true}),
         json!({"space": "ENG", "title": "t", "template": {}}),

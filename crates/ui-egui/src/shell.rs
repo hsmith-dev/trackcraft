@@ -35,6 +35,12 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                             ui.close();
                         }
                     }
+                    // UI-fixes: Jira / Confluence exports (the dialog picks the kind).
+                    ui.separator();
+                    if ui.button("Import\u{2026}").on_hover_text("Import a Jira CSV or JSON export, or a Confluence space export").clicked() {
+                        app.import.choose = true;
+                        ui.close();
+                    }
                 });
                 ui.add_space(8.0);
                 // UI-8: back and forward, with the keymap's bindings in the tooltip.
@@ -579,7 +585,18 @@ fn spaces(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
             star: Some((on, &name)),
             plus: true,
         };
-        let (hit, plus) = row.show(ui, t);
+        let shown = ui.scope(|ui| row.show(ui, t));
+        let (hit, plus) = shown.inner;
+        // UI-fixes: a page dropped on a space's row goes under its home (across spaces too);
+        // dragging over a closed space opens it.
+        let (dropped, over) = crate::wiki::space_drop(app, ui, t, shown.response.rect, home);
+        if let Some(a) = dropped {
+            app.push(a);
+        }
+        if over && !open {
+            app.side.open_spaces.remove(&closed);
+            app.side.open_spaces.insert(key.clone());
+        }
         if plus.is_some_and(|p| p.on_hover_text("Create a page in this space").clicked()) {
             app.push(Action::OpenNewPage { space: key.clone(), parent: None });
         }

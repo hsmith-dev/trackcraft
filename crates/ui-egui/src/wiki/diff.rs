@@ -1,6 +1,8 @@
 //! Version diff (UI-28): two versions of a page compared block by block (`page.diff`), with
 //! word-level marks inside changed blocks. Marks are never colour only: inserted text is
 //! underlined and labelled "Added", deleted text struck through and labelled "Removed".
+//! Unchanged, added and removed blocks render as rich text, as on the page; changed headings and
+//! list items keep their size and bullets around the word marks (UI-fixes).
 
 use egui::text::LayoutJob;
 use egui::{Color32, FontId, Rect, RichText, Stroke, TextFormat, Ui, vec2};
@@ -52,11 +54,92 @@ fn load(app: &mut TrackApp, id: Id, from: u32, to: u32) -> Result<Value, String>
     app.wiki.diff.value.clone().unwrap_or_else(|| Err("no diff".into()))
 }
 
+/// What a changed block is, read from its Markdown: shapes the word-marked text like the block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shape {
+    Plain,
+    Heading(usize),
+    Bullet,
+}
+
+impl Shape {
+    pub(crate) fn of(md: &str) -> Shape {
+        let s = md.trim_start();
+        let hashes = s.chars().take_while(|c| *c == '#').count();
+        if (1..=6).contains(&hashes) && s.get(hashes..).is_some_and(|r| r.starts_with(' ')) {
+            return Shape::Heading(hashes);
+        }
+        if s.starts_with("- ") || s.starts_with("* ") || s.starts_with("+ ") {
+            return Shape::Bullet;
+        }
+        Shape::Plain
+    }
+
+    fn size(self) -> f32 {
+        match self {
+            Shape::Heading(1) => 24.0,
+            Shape::Heading(2) => 20.0,
+            Shape::Heading(3) => 17.0,
+            Shape::Heading(_) => 15.0,
+            _ => 14.0,
+        }
+    }
+
+    /// `line` (at the start of a line of the block) without its Markdown marker: no "## " on a
+    /// heading, a "• " for a "- " bullet.
+    fn strip(self, line: &str) -> String {
+        match self {
+            Shape::Heading(_) if line.trim_start().starts_with('#') => {
+                let rest = line.trim_start().trim_start_matches('#');
+                rest.strip_prefix(' ').unwrap_or(rest).to_string()
+            }
+            Shape::Heading(_) => line.to_string(),
+            Shape::Bullet => {
+                let indent = line.len().saturating_sub(line.trim_start().len());
+                let rest = line.trim_start();
+                match rest.strip_prefix("- ").or_else(|| rest.strip_prefix("* ")).or_else(|| rest.strip_prefix("+ ")) {
+                    Some(r) => format!("{}\u{2022} {r}", line.get(..indent).unwrap_or("")),
+                    None => line.to_string(),
+                }
+            }
+            Shape::Plain => line.to_string(),
+        }
+    }
+}
+
+/// The hunks' text with the block's Markdown markers taken off line starts (see [`Shape::strip`]).
+pub(crate) fn shaped_texts(hunks: &[Value], shape: Shape) -> Vec<String> {
+    let mut at_start = true;
+    hunks
+        .iter()
+        .take(20_000)
+        .map(|h| {
+            let text = h["text"].as_str().unwrap_or_default();
+            let mut out = String::new();
+            for piece in text.split_inclusive('\n') {
+                if at_start {
+                    out.push_str(&shape.strip(piece))
+                } else {
+                    out.push_str(piece)
+                }
+                at_start = piece.ends_with('\n');
+            }
+            out
+        })
+        .collect()
+}
+
 fn word_job(t: &Tokens, tints: &Tints, hunks: &[Value], size: f32) -> LayoutJob {
+    shaped_job(t, tints, hunks, size, Shape::Plain)
+}
+
+fn shaped_job(t: &Tokens, tints: &Tints, hunks: &[Value], size: f32, shape: Shape) -> LayoutJob {
     let mut job = LayoutJob::default();
-    for h in hunks.iter().take(20_000) {
-        let text = h["text"].as_str().unwrap_or_default();
-        let mut f = TextFormat { font_id: FontId::proportional(size), color: t.text, ..Default::default() };
+    let texts = shaped_texts(hunks, shape);
+    for (h, text) in hunks.iter().zip(&texts) {
+        let text = text.as_str();
+        let color = if matches!(shape, Shape::Heading(_)) && !t.dark { Color32::BLACK } else { t.text };
+        let mut f = TextFormat { font_id: FontId::proportional(size), color, ..Default::default() };
         match h["kind"].as_str().unwrap_or_default() {
             "insert" => {
                 f.background = tints.ins_word;
@@ -89,12 +172,10 @@ fn hunk_frame(ui: &mut Ui, fill: Color32, bar: Color32, tag: &str, body: impl Fn
     ui.add_space(4.0);
 }
 
-fn plain(ui: &mut Ui, text: &str, color: Color32, strike: bool) {
-    let mut rt = RichText::new(text).size(14.0).color(color);
-    if strike {
-        rt = rt.strikethrough();
-    }
-    ui.add(egui::Label::new(rt).wrap());
+/// A block's Markdown rendered as on the page (struck through when removed).
+fn rich(ui: &mut Ui, t: &Tokens, md: &str, struck: bool) {
+    let doc = trackcraft_markup::Doc::from_markdown(md);
+    crate::markup_view::show_blocks(ui, t, &doc.blocks, struck);
 }
 
 /// Versions to pick from, newest first: (number, "v3 · message").
@@ -222,19 +303,20 @@ pub(crate) fn view(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id, from: u3
         for b in blocks.iter().take(5_000) {
             let text = b["text"].as_str().unwrap_or_default();
             match b["kind"].as_str().unwrap_or_default() {
-                "insert" => hunk_frame(ui, tints.ins_bg, t.ok, "ADDED", |ui| plain(ui, text, t.text, false)),
-                "delete" => hunk_frame(ui, tints.del_bg, t.danger, "REMOVED", |ui| plain(ui, text, t.muted, true)),
+                "insert" => hunk_frame(ui, tints.ins_bg, t.ok, "ADDED", |ui| rich(ui, t, text, false)),
+                "delete" => hunk_frame(ui, tints.del_bg, t.danger, "REMOVED", |ui| rich(ui, t, text, true)),
                 "change" => {
                     let hunks = b["inline"].as_array().cloned().unwrap_or_default();
+                    let shape = Shape::of(b["to"].as_str().unwrap_or_default());
                     hunk_frame(ui, t.surface, t.accent, "CHANGED", |ui| {
-                        ui.label(word_job(t, &tints, &hunks, 14.0));
+                        ui.label(shaped_job(t, &tints, &hunks, shape.size(), shape));
                     });
                 }
                 _ => {
-                    egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 10, top: 4, bottom: 4 }).show(ui, |ui| {
-                        plain(ui, text, t.muted, false);
+                    egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 10, top: 2, bottom: 2 }).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        rich(ui, t, text, false);
                     });
-                    ui.add_space(4.0);
                 }
             }
         }

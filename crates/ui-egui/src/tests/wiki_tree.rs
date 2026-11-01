@@ -92,8 +92,8 @@ fn move_picker_places_a_page() {
     let mut h = harness(app());
     h.state_mut().control(&json!({"method": "ui.pageDialog", "params": {"kind": "move", "id": 27}})).unwrap();
     h.run_steps(4);
-    // Only pages of the same space are offered (pages move between spaces by copy).
-    assert!(h.query_all_by_label("Team Home (space home)").next().is_none());
+    // Every space is offered (UI-fixes: pages move between spaces with their subtree).
+    assert!(h.query_all_by_label("Team Home (space home)").next().is_some());
     // The dialog's row (the sidebar and the home view list it too) is the last one drawn.
     h.get_all_by_label("Sync protocol").last().unwrap().click();
     h.run_steps(2);

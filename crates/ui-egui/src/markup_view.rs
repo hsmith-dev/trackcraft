@@ -12,17 +12,25 @@ pub fn show(ui: &mut Ui, t: &Tokens, doc: &Doc) {
         return;
     }
     for b in &doc.blocks {
-        block(ui, t, b, 0);
+        block(ui, t, b, 0, false);
     }
 }
 
-fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
+/// Renders blocks as on the page; `struck` draws them muted and struck through (removed text in
+/// the version diff, UI-fixes).
+pub fn show_blocks(ui: &mut Ui, t: &Tokens, blocks: &[Block], struck: bool) {
+    for b in blocks.iter().take(10_000) {
+        block(ui, t, b, 0, struck);
+    }
+}
+
+fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize, struck: bool) {
     if depth > 32 {
         return;
     }
     match b {
         Block::Paragraph(inl) => {
-            ui.label(job(t, inl, 14.0));
+            ui.label(job(t, inl, 14.0, struck));
             ui.add_space(4.0);
         }
         Block::Heading { level, content } => {
@@ -33,9 +41,9 @@ fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
                 _ => 15.0,
             };
             ui.add_space(6.0);
-            let mut j = job(t, content, size);
+            let mut j = job(t, content, size, struck);
             for s in &mut j.sections {
-                s.format.color = t.text;
+                s.format.color = if struck { t.muted } else { t.text };
             }
             ui.label(j);
             ui.add_space(2.0);
@@ -49,7 +57,7 @@ fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
                     ui.label(egui::RichText::new(marker).color(t.muted));
                     ui.vertical(|ui| {
                         for b in item {
-                            block(ui, t, b, depth + 1);
+                            block(ui, t, b, depth + 1, struck);
                         }
                     });
                 });
@@ -59,7 +67,11 @@ fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
         Block::CodeBlock { text, .. } => {
             egui::Frame::new().fill(t.code_bg).corner_radius(6).inner_margin(8).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(egui::RichText::new(text).monospace().size(13.0));
+                let mut rt = egui::RichText::new(text).monospace().size(13.0);
+                if struck {
+                    rt = rt.strikethrough().color(t.muted);
+                }
+                ui.label(rt);
             });
             ui.add_space(4.0);
         }
@@ -67,7 +79,7 @@ fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
             egui::Frame::new().stroke(Stroke::NONE).inner_margin(egui::Margin { left: 12, right: 0, top: 2, bottom: 2 }).show(ui, |ui| {
                 let top = ui.cursor().top();
                 for b in bs {
-                    block(ui, t, b, depth + 1);
+                    block(ui, t, b, depth + 1, struck);
                 }
                 let bottom = ui.min_rect().bottom();
                 let x = ui.min_rect().left() - 8.0;
@@ -84,7 +96,7 @@ fn block(ui: &mut Ui, t: &Tokens, b: &Block, depth: usize) {
     }
 }
 
-fn job(t: &Tokens, inl: &[Inline], size: f32) -> LayoutJob {
+fn job(t: &Tokens, inl: &[Inline], size: f32, struck: bool) -> LayoutJob {
     let mut j = LayoutJob::default();
     j.wrap.max_width = f32::INFINITY;
     for i in inl {
@@ -106,6 +118,10 @@ fn job(t: &Tokens, inl: &[Inline], size: f32) -> LayoutJob {
                             f.underline = Stroke::new(1.0, t.accent);
                         }
                     }
+                }
+                if struck {
+                    f.color = t.muted;
+                    f.strikethrough = Stroke::new(1.0, t.danger);
                 }
                 j.append(text, 0.0, f);
             }

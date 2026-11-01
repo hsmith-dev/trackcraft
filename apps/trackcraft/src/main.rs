@@ -168,6 +168,20 @@ impl App {
                     self.save(Some(path));
                 }
             }
+            // UI-fixes: File › Import… — the UI picked the kind; pick the export, run the import.
+            FileRequest::Import(kind) => {
+                use trackcraft_ui_egui::ImportKind;
+                let d = rfd::FileDialog::new().set_title("Import");
+                let picked = match kind {
+                    ImportKind::JiraCsv => d.add_filter("CSV export", &["csv"]).pick_file(),
+                    ImportKind::JiraJson => d.add_filter("JSON export", &["json"]).pick_file(),
+                    ImportKind::Confluence { folder: true } => d.pick_folder(),
+                    ImportKind::Confluence { folder: false } => d.add_filter("Space export", &["zip", "html", "htm", "xml"]).pick_file(),
+                };
+                if let Some(path) = picked {
+                    self.app.import_file(kind, &path);
+                }
+            }
         }
     }
 

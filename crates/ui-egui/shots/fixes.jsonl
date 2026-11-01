@@ -1,0 +1,48 @@
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"ui.search","params":{"jql":"project = LUME ORDER BY key"}}
+{"method":"ui.peek","params":{"key":"LUME-2"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/peek.png"}
+{"method":"ui.key","params":{"key":"ArrowDown"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/peek-next.png"}
+{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}
+{"method":"ui.peek","params":{"key":"LUME-4"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/peek-board.png"}
+{"method":"ui.navigate","params":{"view":"backlog","project":"LUME"}}
+{"method":"ui.peek","params":{"key":"LUME-3"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/peek-backlog.png"}
+{"method":"ui.peek","params":{"key":null}}
+{"method":"ui.import","params":{}}
+{"steps":4}
+{"shot":"/tmp/tc-shots/import-choose.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"engine.execute","params":{"command":"page.edit","params":{"id":24,"body":"Intro to the architecture.\n\n## Storage\n\nOne file per workspace.\n\n- alpha\n- beta\n\n## Sync\n\nOperations merge on the server."}}}
+{"method":"engine.execute","params":{"command":"page.edit","params":{"id":24,"body":"Intro to the architecture.\n\n## Storage and saves\n\nOne file per workspace, written atomically.\n\n- alpha\n- gamma\n\n## Sync\n\nOperations merge on the server."}}}
+{"method":"ui.navigate","params":{"view":"diff","id":24,"from":2,"to":3}}
+{"shot":"/tmp/tc-shots/diff-rich.png"}
+{"method":"ui.navigate","params":{"view":"page","id":25}}
+{"method":"ui.pageDialog","params":{"kind":"move","id":24}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/move-cross-space.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"engine.execute","params":{"command":"page.move","params":{"id":24,"space":"TEAM"}}}
+{"method":"ui.navigate","params":{"view":"page","id":24}}
+{"shot":"/tmp/tc-shots/moved-to-team.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.search","params":{"jql":"project = LUME ORDER BY key"}}
+{"method":"ui.peek","params":{"key":"LUME-2"}}
+{"steps":3}
+{"shot":"/tmp/tc-shots/peek-dark.png"}
+{"method":"ui.peek","params":{"key":null}}
+{"method":"ui.import","params":{}}
+{"steps":4}
+{"shot":"/tmp/tc-shots/import-choose-dark.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"steps":2}
+{"method":"ui.navigate","params":{"view":"diff","id":24,"from":2,"to":3}}
+{"shot":"/tmp/tc-shots/diff-rich-dark.png"}

@@ -160,6 +160,8 @@ pub(crate) enum Act {
     Forward,
     /// Open Settings (UI-7).
     Settings,
+    /// Peek at the selected issue (fixes).
+    Peek,
 }
 
 #[derive(Debug, Clone)]
@@ -222,8 +224,11 @@ pub(crate) const UI_BINDINGS: &[(Scope, &str, &str, Act)] = &[
     (Scope::Board, "Shift+Right / ]", "Move the card to the next status", Act::BoardNext),
     (Scope::Board, "Shift+Left / [", "Move the card to the previous status", Act::BoardPrev),
     (Scope::Issue, "Escape", "Cancel editing", Act::Doc),
-    (Scope::Global, "Alt+Right", "Forward", Act::Forward), // UI-8
-    (Scope::Global, "Mod+,", "Settings", Act::Settings),   // UI-7
+    (Scope::Global, "Alt+Right", "Forward", Act::Forward),              // UI-8
+    (Scope::Global, "Mod+,", "Settings", Act::Settings),                // UI-7
+    (Scope::List, "Space", "Peek at the selected issue", Act::Peek),    // fixes
+    (Scope::Board, "Space", "Peek at the selected card", Act::Peek),    // fixes
+    (Scope::Backlog, "Space", "Peek at the selected issue", Act::Peek), // fixes
 ];
 
 /// The keymap: every registry shortcut, then the UI-only bindings.
@@ -424,6 +429,7 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
         Act::Forward => app.push(Action::Forward), // UI-8
         // UI-7
         Act::Settings => app.push(Action::Nav(View::Settings(crate::settings::Tab::Appearance))),
+        Act::Peek => crate::peek::toggle(app), // fixes
     }
 }
 

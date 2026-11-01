@@ -34,7 +34,7 @@ fn base_commands() -> Vec<CommandSpec> {
             .key("E")
             .params(r#"{"id": 12, "title": "…", "body": "…", "baseVersion": 3, "message": "what changed" (each optional but one of title/body)}"#),
         CommandSpec::new("page.move", "Move Page", "Page › More", page_move)
-            .params(r#"{"id": 12, "parent": 4 (optional with before/after), "before": 7 or "after": 7 (a sibling id; optional)}"#),
+            .params(r#"{"id": 12, "parent": 4 (optional with before/after or space), "before": 7 or "after": 7 (a sibling id; optional), "space": "TEAM" (optional; another space: under its home page unless parent/before/after say where; the subtree, comments and history move too)}"#),
         CommandSpec::new("page.copy", "Copy Page", "Page › More", page_copy).params(
             r#"{"id": 12, "parent": 4 (optional; default beside the original), "space": "TEAM" (optional; its home page), "title": "…" (optional; default the original + " (copy)"), "children": false}"#,
         ),
@@ -117,17 +117,36 @@ fn page_edit(s: &mut Session, p: &Value) -> CmdResult {
 
 fn page_move(s: &mut Session, p: &Value) -> CmdResult {
     let id = params::id(p, "id")?;
-    let parent = params::opt_id(p, "parent")?;
+    let mut parent = params::opt_id(p, "parent")?;
+    let space = match params::opt_str(p, "space")? {
+        Some(k) => Some(s.ws.space(k).map_err(err)?.clone()),
+        None => None,
+    };
     let placement = match (params::opt_id(p, "before")?, params::opt_id(p, "after")?) {
         (Some(_), Some(_)) => return Err("pass either \"before\" or \"after\", not both".into()),
         (Some(b), None) => Placement::Before(b),
         (None, Some(a)) => Placement::After(a),
-        (None, None) if parent.is_none() => return Err("missing \"parent\" (or \"before\"/\"after\")".into()),
+        (None, None) if parent.is_none() && space.is_none() => return Err("missing \"parent\" (or \"before\"/\"after\"/\"space\")".into()),
         (None, None) => Placement::Last,
     };
+    if let Some(sp) = &space {
+        // Whatever says where must be in that space; with nothing else, the space's home.
+        let anchor = match placement {
+            Placement::Before(x) | Placement::After(x) => Some(x),
+            Placement::Last => parent,
+        };
+        match anchor {
+            Some(a) if s.ws.page(a).map_err(err)?.space != sp.key => {
+                return Err(format!("page {a} is not in space {}", sp.key));
+            }
+            Some(_) => {}
+            None => parent = Some(sp.homepage),
+        }
+    }
     s.ws.move_page_to(id, parent, placement).map_err(err)?;
     let page = s.ws.page(id).map_err(err)?;
-    Ok(json!({"moved": id.0, "parentId": page.parent.map(|i| i.0), "position": page.position}))
+    let moved = s.ws.subtree(id).len();
+    Ok(json!({"moved": id.0, "space": page.space.as_str(), "parentId": page.parent.map(|i| i.0), "position": page.position, "pages": moved}))
 }
 
 fn page_copy(s: &mut Session, p: &Value) -> CmdResult {

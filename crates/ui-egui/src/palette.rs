@@ -130,6 +130,7 @@ pub(crate) fn ui_route(app: &mut TrackApp, id: &str) -> bool {
         ("file.open", _) => app.push(Action::File(FileRequest::Open)),
         ("file.save", _) => app.push(Action::File(FileRequest::Save)),
         ("workspace.new", _) => app.push(Action::File(FileRequest::New)),
+        ("workspace.import", _) => app.import.choose = true, // fixes
         ("sprint.create" | "sprint.start" | "sprint.complete", _) if project.is_some() => {
             let kind = id.trim_start_matches("sprint.");
             let p = project.map(|p| p.to_string()).unwrap_or_default();

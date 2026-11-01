@@ -36,6 +36,13 @@ parity.
 
 ## Progress log
 
+- **2026-10-31 · UI-fixes** — peek pane on the issue list, board and backlog (`Space`, hover
+  "Peek", follows the selection, `ui.peek`); File › Import… for Jira CSV / JSON and Confluence
+  exports with a report dialog (`ui.import`); the version compare view renders blocks as rich
+  text; inline-comment quotes end at a word with an ellipsis; `page.move` takes `space` and moves
+  a subtree (comments, history) between spaces, refusing title clashes; Move to… and sidebar drops
+  work across spaces.
+
 - **2026-10-31 · UI-7, UI-9/13, UI-27..30, M4.1, M5.1** (five agents in parallel) — Settings
   (theme, density, workspace, people, autosave after the last change); issue view polish
   (activity tabs, link/unlink, comment edit, pickers, label chips, create dialog); wiki screens

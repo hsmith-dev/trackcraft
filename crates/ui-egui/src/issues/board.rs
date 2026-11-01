@@ -202,6 +202,7 @@ fn board_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
 
     let mut moved: Option<(IssueKey, String)> = None;
     let mut open: Option<IssueKey> = None;
+    let mut peek: Option<IssueKey> = None; // fixes
     let mut more: Vec<(egui::Id, usize)> = Vec::new();
     let col_w = ((ui.available_width() - 12.0 * columns.len().saturating_sub(1) as f32) / columns.len().max(1) as f32).clamp(220.0, 320.0);
     egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
@@ -240,6 +241,9 @@ fn board_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
                                 if r.clicked() {
                                     open = Some(i.key.clone());
                                 }
+                                if crate::peek::hover_button(ui, r.rect, &i.key) {
+                                    peek = Some(i.key.clone()); // fixes
+                                }
                                 if sel && scroll {
                                     r.scroll_to_me(None);
                                 }
@@ -274,6 +278,9 @@ fn board_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
             params: json!({"key": k.to_string(), "to": to}),
             then: Then::Toast(format!("{k} moved to {to}")),
         });
+    }
+    if let Some(k) = peek {
+        crate::peek::open(app, k); // fixes
     }
     if let Some(k) = open {
         app.board_sel = Some(k.clone());

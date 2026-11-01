@@ -51,9 +51,10 @@ enum Clear {
     Block,
 }
 
-/// The quote an inline comment on `b` carries: its first [`QUOTE_CHARS`] characters.
+/// The quote an inline comment on `b` carries: its start, up to [`QUOTE_CHARS`] characters,
+/// ending at a word boundary (UI-fixes).
 pub(crate) fn quote_of(b: &Block) -> String {
-    b.plain_text().chars().take(QUOTE_CHARS).collect()
+    crate::widgets::word_prefix(&b.plain_text(), QUOTE_CHARS).to_string()
 }
 
 /// Where an inline thread sits now: its current block, or `None` when the quoted text is gone.
@@ -287,7 +288,10 @@ pub(crate) fn mark_block(ui: &Ui, t: &Tokens, block: Rect) {
     ui.painter().rect_filled(bar, 1.5, t.accent);
 }
 
-fn quote(ui: &mut Ui, t: &Tokens, text: &str, struck: bool) {
+/// A quote in a card: cut at a word boundary with "…" when it stops before `source` (the
+/// quoted block's text, when it is still there) or is long (UI-fixes).
+fn quote(ui: &mut Ui, t: &Tokens, text: &str, source: Option<&str>, struck: bool) {
+    let text = crate::widgets::quote_excerpt(text, source, QUOTE_CHARS);
     let mut rt = RichText::new(format!("“{text}”")).italics().color(t.muted).size(12.0);
     if struck {
         rt = rt.strikethrough();
@@ -304,9 +308,10 @@ fn inline_card(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &Page, c: &PageCo
     egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, edge)).corner_radius(8).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         if let Some(a) = &c.anchor {
+            let source = if outdated { None } else { located(p, c).and_then(|b| p.body.blocks.get(b)).map(Block::plain_text) };
             ui.horizontal(|ui| {
                 ui.add_space(6.0);
-                ui.vertical(|ui| quote(ui, t, &a.quote, outdated));
+                ui.vertical(|ui| quote(ui, t, &a.quote, source.as_deref(), outdated));
             });
         }
         if c.resolved {
@@ -394,6 +399,7 @@ pub(crate) fn margin(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &Page, tops
 /// The small form that comments on block `b`.
 fn block_form(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &Page, b: usize, ops: &mut Vec<Op>) {
     let q = p.body.blocks.get(b).map(quote_of).unwrap_or_default();
+    let source = p.body.blocks.get(b).map(Block::plain_text);
     let mut send = None;
     let mut cancel = false;
     egui::Frame::new().fill(t.surface).stroke(Stroke::new(1.0, t.accent)).corner_radius(8).inner_margin(egui::Margin::symmetric(10, 8)).show(
@@ -402,7 +408,7 @@ fn block_form(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &Page, b: usize, o
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.add_space(6.0);
-                ui.vertical(|ui| quote(ui, t, &q, false));
+                ui.vertical(|ui| quote(ui, t, &q, source.as_deref(), false));
             });
             if let Some((_, text)) = app.wiki.comments.block.as_mut() {
                 let r = text_box(ui, text, "Comment on this block", "Write a comment", 2);
