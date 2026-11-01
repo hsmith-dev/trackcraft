@@ -6,7 +6,46 @@ use trackcraft_core::Id;
 use trackcraft_markup::Doc;
 
 use crate::theme::Tokens;
-use crate::widgets::{card, empty_state};
+use crate::widgets::{card, empty_state, link_truncated};
+
+/// Breadcrumbs shown before the middle collapses to "…" (UI-6: 60-deep trees).
+const CRUMBS: usize = 4;
+/// Widest a single breadcrumb gets before it truncates.
+const CRUMB_W: f32 = 220.0;
+/// Blocks per lazily drawn chunk of a page body.
+const CHUNK: usize = 40;
+/// Bodies with more blocks than this draw only the chunks in view (UI-6: 5 000-line pages).
+const LAZY_BLOCKS: usize = 200;
+
+/// Draws `doc` inside a `ScrollArea::show_viewport` closure, laying out only the chunks of
+/// [`CHUNK`] blocks that are in `viewport`; the rest take their measured (or estimated) height.
+/// Heights are remembered per `salt` and width, so scrolling back is exact.
+fn lazy_doc(ui: &mut Ui, t: &Tokens, doc: &Doc, salt: (u64, u32), viewport: egui::Rect) {
+    if doc.blocks.len() <= LAZY_BLOCKS {
+        markup_view::show(ui, t, doc);
+        return;
+    }
+    let origin = ui.min_rect().top();
+    let width = ui.available_width().round() as i32;
+    for (n, chunk) in doc.blocks.chunks(CHUNK).enumerate() {
+        let id = egui::Id::unique(("page-chunk", salt, width, n));
+        let y = ui.cursor().top() - origin;
+        let known = ui.data(|d| d.get_temp::<f32>(id));
+        let (h, measured) = match known {
+            Some(h) => (h, true),
+            None => (CHUNK as f32 * 26.0, false),
+        };
+        let visible = y <= viewport.bottom() && y + h >= viewport.top();
+        // Unmeasured chunks above the view are drawn once, so offsets above it are exact.
+        if visible || (!measured && y < viewport.top()) {
+            let part = Doc { blocks: chunk.to_vec() };
+            let r = ui.scope(|ui| markup_view::show(ui, t, &part)).response;
+            ui.data_mut(|d| d.insert_temp(id, r.rect.height()));
+        } else {
+            ui.allocate_space(egui::vec2(ui.available_width(), h));
+        }
+    }
+}
 use crate::{Action, NewPageForm, Then, TrackApp, View, icons, markup_view};
 
 fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
@@ -19,15 +58,28 @@ fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
         chain.remove(0);
     }
     let home = ws.spaces.get(&page.space).map(|s| s.homepage);
+    // UI-6: a deep page shows the first crumb, "…", and the last few.
+    let hidden = chain.len().saturating_sub(CRUMBS);
     let mut go = None;
     ui.horizontal_wrapped(|ui| {
-        if ui.link(RichText::new(&space_name).color(t.muted)).clicked() {
+        let crumb = |ui: &mut Ui, text: &str| -> bool {
+            ui.allocate_ui(egui::vec2(CRUMB_W, ui.spacing().interact_size.y), |ui| link_truncated(ui, RichText::new(text).color(t.muted)).clicked())
+                .inner
+        };
+        if crumb(ui, &space_name) {
             go = home;
         }
-        for (pid, title) in chain {
+        for (n, (pid, title)) in chain.iter().enumerate() {
+            if hidden > 0 && n > 0 && n <= hidden {
+                if n == 1 {
+                    ui.label(RichText::new("/").color(t.muted));
+                    ui.label(RichText::new("…").color(t.muted)).on_hover_text(format!("{hidden} more levels"));
+                }
+                continue;
+            }
             ui.label(RichText::new("/").color(t.muted));
-            if ui.link(RichText::new(title).color(t.muted)).clicked() {
-                go = Some(pid);
+            if crumb(ui, title) {
+                go = Some(*pid);
             }
         }
     });
@@ -49,8 +101,8 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     let now = app.session.now();
     let author = app.session.ws.users.get(&p.author).map(|u| u.display_name.clone()).unwrap_or_else(|| p.author.clone());
     let is_home = p.parent.is_none();
+    // Buttons first (right to left), so a 255-character title truncates instead (UI-6).
     ui.horizontal(|ui| {
-        ui.heading(RichText::new(&p.title).size(26.0).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if !is_home && ui.small_button("Delete").on_hover_text("Delete this page and its children").clicked() {
                 app.push(Action::Run {
@@ -72,10 +124,13 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
             {
                 app.push(Action::EditPage(id));
             }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(&p.title).size(26.0).strong()).truncate());
+            });
         });
     });
-    ui.horizontal(|ui| {
-        icons::avatar(ui, t, &p.author, &author, 18.0);
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::who(ui, t, &app.session.ws, Some(&p.author), 18.0);
         ui.label(RichText::new(format!("v{} · {author} · {}", p.version, crate::ago(now, p.updated))).color(t.muted).size(12.0));
         for l in &p.labels {
             ui.label(RichText::new(l).size(11.0).background_color(t.surface_alt));
@@ -83,21 +138,36 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     });
     ui.add_space(12.0);
     // `e` edits the page, `c` adds a child, `l` edits labels: see `keys.rs`.
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let kids: Vec<(Id, String)> = app.session.ws.children(id).iter().map(|c| (c.id, c.title.clone())).collect();
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, viewport| {
         ui.set_max_width(820.0);
-        if is_home && p.body.is_empty() {
-            empty_state(ui, t, "This is the space's home page.");
+        // UI-6: empty pages say what to do.
+        if p.body.is_empty() {
+            if is_home && kids.is_empty() {
+                if empty_state(
+                    ui,
+                    t,
+                    "This space has no pages yet",
+                    "Write the first page; it appears in the sidebar under the space.",
+                    Some("Create page"),
+                ) {
+                    app.push(Action::OpenNewPage { space: p.space.to_string(), parent: None });
+                }
+            } else if is_home {
+                empty_state(ui, t, "", "This is the space's home page. Its pages are listed below.", None);
+            } else if empty_state(ui, t, "This page is empty", "Edit it to add text (E).", Some("Edit page")) {
+                app.push(Action::EditPage(id));
+            }
         } else {
-            markup_view::show(ui, t, &p.body);
+            lazy_doc(ui, t, &p.body, (id.0, p.version), viewport);
         }
-        let kids: Vec<(Id, String)> = app.session.ws.children(id).iter().map(|c| (c.id, c.title.clone())).collect();
         if !kids.is_empty() {
             ui.add_space(18.0);
             card(ui, t, "Child pages", |ui| {
                 for (cid, title) in kids {
                     ui.horizontal(|ui| {
                         icons::page(ui, t, 16.0);
-                        if ui.link(title).clicked() {
+                        if link_truncated(ui, title).clicked() {
                             app.push(Action::Nav(View::Page(cid)));
                         }
                     });
@@ -177,11 +247,13 @@ pub(crate) fn history(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     };
     breadcrumbs(app, ui, t, id);
     ui.horizontal(|ui| {
-        ui.heading(RichText::new(format!("History of “{}”", p.title)).size(22.0));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("Back to page").clicked() {
                 app.push(Action::Nav(View::Page(id)));
             }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(format!("History of “{}”", p.title)).size(22.0).strong()).truncate());
+            });
         });
     });
     ui.add_space(8.0);
@@ -223,7 +295,14 @@ pub(crate) fn history(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
         ui.vertical(|ui| {
             let want = app.history_preview.unwrap_or(p.version);
             if let Some((v, title, _, _, _, body)) = rows.iter().find(|r| r.0 == want) {
-                card(ui, t, &format!("v{v}: {title}"), |ui| markup_view::show(ui, t, body));
+                // UI-6: a huge version scrolls and draws lazily.
+                egui::ScrollArea::vertical().id_salt("history-preview").auto_shrink([false, false]).show_viewport(ui, |ui, viewport| {
+                    card(ui, t, "", |ui| {
+                        ui.add(egui::Label::new(RichText::new(format!("v{v}: {title}")).strong().size(15.0)).truncate());
+                        ui.add_space(6.0);
+                        lazy_doc(ui, t, body, (id.0, *v), viewport);
+                    });
+                });
             }
         });
     });

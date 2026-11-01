@@ -6,10 +6,20 @@ use trackcraft_core::IssueKey;
 use trackcraft_model::{Issue, PRIORITIES, StatusCategory, priority_rank};
 
 use crate::theme::Tokens;
-use crate::widgets::{card, field_row, name_of, pill, who};
+use crate::widgets::{card, empty_state, field_row, link_truncated, name_of, pill, who};
+
+/// Comments drawn at first, and added per "Show older" click (UI-6: 500-comment issues).
+const COMMENT_PAGE: usize = 50;
+/// Description blocks drawn before "Show the whole description" (UI-6: huge descriptions).
+const DESCRIPTION_BLOCKS: usize = 30;
 use crate::{Action, ComboBox, Then, TrackApp, View, icons, markup_view};
 
 pub(crate) fn detail(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
+    // UI-6: long activity and descriptions scroll instead of running off the window.
+    egui::ScrollArea::vertical().id_salt("issue-detail").auto_shrink([false, false]).show(ui, |ui| detail_body(app, ui, t, key));
+}
+
+fn detail_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
     let Some(issue) = app.session.ws.issues.get(key).cloned() else {
         ui.label("This issue no longer exists.");
         return;
@@ -26,14 +36,24 @@ pub(crate) fn detail(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey
         .map(|p| p.workflow.available(&issue.status).iter().map(|t| t.to.clone()).collect())
         .unwrap_or_default();
 
+    let parent_exists = issue.parent.as_ref().is_some_and(|p| app.session.ws.issues.contains_key(p));
     ui.horizontal(|ui| {
-        if ui.link(RichText::new(&project_name).color(t.muted)).clicked() {
-            app.push(Action::Nav(View::Board(key.project.clone())));
-        }
+        // At most half the row for a 255-character project name.
+        let w = ui.available_width() * 0.5;
+        ui.allocate_ui(egui::vec2(w, ui.spacing().interact_size.y), |ui| {
+            if link_truncated(ui, RichText::new(&project_name).color(t.muted)).clicked() {
+                app.push(Action::Nav(View::Board(key.project.clone())));
+            }
+        });
         ui.label(RichText::new("/").color(t.muted));
         if let Some(p) = &issue.parent {
-            if ui.link(RichText::new(p.to_string()).color(t.muted)).clicked() {
-                app.push(Action::Nav(View::Issue(p.clone())));
+            if parent_exists {
+                if ui.link(RichText::new(p.to_string()).color(t.muted)).clicked() {
+                    app.push(Action::Nav(View::Issue(p.clone())));
+                }
+            } else {
+                // UI-6: a deleted parent is plain struck text, not a link.
+                ui.label(RichText::new(p.to_string()).color(t.muted).strikethrough()).on_hover_text("This parent issue no longer exists");
             }
             ui.label(RichText::new("/").color(t.muted));
         }
@@ -76,6 +96,9 @@ pub(crate) fn detail(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey
         ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.set_width(right_w);
+            // UI-6: long names (an unbreakable display name, a raw user id) truncate in the
+            // fields column instead of pushing it past the window edge.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             fields(app, ui, t, &issue, &k, cat, &transitions);
         });
     });
@@ -112,7 +135,24 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
                 }
             });
         }
-        None => card(ui, t, "", |ui| markup_view::show(ui, t, &issue.description)),
+        None => {
+            let full_id = egui::Id::unique(("issue-full-description", k));
+            let full = ui.data(|d| d.get_temp::<bool>(full_id)).unwrap_or(false);
+            let n = issue.description.blocks.len();
+            let mut expand = false;
+            card(ui, t, "", |ui| {
+                if full || n <= DESCRIPTION_BLOCKS {
+                    markup_view::show(ui, t, &issue.description);
+                } else {
+                    let head = trackcraft_markup::Doc { blocks: issue.description.blocks.iter().take(DESCRIPTION_BLOCKS).cloned().collect() };
+                    markup_view::show(ui, t, &head);
+                    expand = ui.button(format!("Show the whole description ({} more blocks)", n - DESCRIPTION_BLOCKS)).clicked();
+                }
+            });
+            if expand {
+                ui.data_mut(|d| d.insert_temp(full_id, true));
+            }
+        }
     }
     if end_edit {
         app.issue_ui.editing_description = None;
@@ -136,8 +176,8 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
                 if ui.link(c.key.to_string()).clicked() {
                     acts.push(Action::Nav(View::Issue(c.key.clone())));
                 }
-                ui.label(&c.summary);
                 pill(ui, t, cat, &c.status);
+                ui.add(egui::Label::new(&c.summary).truncate());
             });
         }
         ui.add_space(10.0);
@@ -159,7 +199,7 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
                     acts.push(Action::Nav(View::Issue(target.clone())));
                 }
                 if let Some(o) = ws.issues.get(&target) {
-                    ui.label(&o.summary);
+                    ui.add(egui::Label::new(&o.summary).truncate());
                 }
             });
         }
@@ -187,13 +227,23 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
         });
     });
     ui.add_space(6.0);
-    for c in issue.comments.iter().rev() {
+    if issue.comments.is_empty() {
+        empty_state(ui, t, "", "No comments yet. Start the conversation above.", None);
+    }
+    // UI-6: newest first, COMMENT_PAGE at a time.
+    let shown_id = egui::Id::unique(("issue-comments-shown", k));
+    let shown = ui.data(|d| d.get_temp::<usize>(shown_id)).unwrap_or(COMMENT_PAGE);
+    for c in issue.comments.iter().rev().take(shown) {
         ui.horizontal_top(|ui| {
             let name = name_of(ws, Some(&c.author));
-            icons::avatar(ui, t, &c.author, &name, 26.0);
+            who(ui, t, ws, Some(&c.author), 26.0);
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(&name).strong());
+                    // The name gets at most 60% of the row, so the time and Delete stay visible.
+                    let w = ui.available_width() * 0.6;
+                    ui.allocate_ui(egui::vec2(w, ui.spacing().interact_size.y), |ui| {
+                        ui.add(egui::Label::new(RichText::new(&name).strong()).truncate());
+                    });
                     ui.label(RichText::new(crate::ago(now, c.created)).color(t.muted).size(12.0));
                     if c.author == app.session.user && ui.small_button("Delete").clicked() {
                         acts.push(Action::Run {
@@ -207,6 +257,10 @@ fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &s
             });
         });
         ui.add_space(8.0);
+    }
+    let older = issue.comments.len().saturating_sub(shown);
+    if older > 0 && ui.button(format!("Show older comments ({older} more)")).clicked() {
+        ui.data_mut(|d| d.insert_temp(shown_id, shown.saturating_add(COMMENT_PAGE)));
     }
     for a in acts {
         app.push(a);
@@ -291,7 +345,7 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
             field_row(ui, t, "Reporter", |ui, _| {
                 ui.horizontal(|ui| {
                     who(ui, t, ws, Some(&issue.reporter), 20.0);
-                    ui.label(name_of(ws, Some(&issue.reporter)));
+                    ui.add(egui::Label::new(name_of(ws, Some(&issue.reporter))).truncate());
                 });
             });
 
@@ -324,7 +378,9 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
                 }
                 None => {
                     let shown = if issue.labels.is_empty() { "None".to_string() } else { issue.labels.join(", ") };
-                    if ui.add(egui::Label::new(shown).sense(egui::Sense::click())).on_hover_text("Click to edit").clicked() {
+                    let shown = if issue.labels.len() > 1 { format!("{} labels: {shown}", issue.labels.len()) } else { shown };
+                    // UI-6: truncated (100 labels would widen the column); the full list on hover.
+                    if ui.add(egui::Label::new(shown).truncate().sense(egui::Sense::click())).on_hover_text("Click to edit").clicked() {
                         app.issue_ui.labels = Some(issue.labels.join(" "));
                     }
                 }

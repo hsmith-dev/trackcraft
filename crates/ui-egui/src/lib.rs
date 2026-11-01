@@ -6,6 +6,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod backlog; // UI-11
+#[doc(hidden)]
+pub mod fixtures; // UI-6
 mod guard;
 pub mod icons;
 mod issues;

@@ -1,0 +1,7 @@
+{"fixture":"empty"}
+{"shot":"/tmp/tc-shots/empty-home.png"}
+{"method":"ui.navigate","params":{"view":"issues"}}
+{"shot":"/tmp/tc-shots/empty-list.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"home"}}
+{"shot":"/tmp/tc-shots/empty-home-dark.png"}

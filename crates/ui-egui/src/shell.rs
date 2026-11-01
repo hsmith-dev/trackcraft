@@ -5,7 +5,7 @@ use serde_json::json;
 use trackcraft_core::Id;
 
 use crate::theme::Tokens;
-use crate::widgets::{card, empty_state};
+use crate::widgets::{card, empty_state, link_truncated};
 use crate::{Action, ComboBox, FileRequest, Then, TrackApp, View, icons};
 
 pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
@@ -233,19 +233,38 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let ws = &app.session.ws;
     let me = app.session.user.clone();
     let name = ws.users.get(&me).map(|u| u.display_name.clone()).unwrap_or(me.clone());
-    ui.heading(RichText::new(format!("Welcome back, {}", name.split_whitespace().next().unwrap_or(&name))).size(24.0));
+    let first = name.split_whitespace().next().unwrap_or(&name);
+    ui.add(egui::Label::new(RichText::new(format!("Welcome back, {first}")).size(24.0).strong()).truncate());
     ui.label(
         RichText::new(format!("{} projects · {} issues · {} spaces · {} pages", ws.projects.len(), ws.issues.len(), ws.spaces.len(), ws.pages.len()))
             .color(t.muted),
     );
     ui.add_space(16.0);
+    // UI-6: an empty workspace says what to do first.
+    if ws.projects.is_empty() && ws.spaces.is_empty() {
+        let mut open = false;
+        card(ui, t, "", |ui| {
+            let hint = format!("Run Create Project or Create Space from the command palette ({}).", crate::key("Mod+K"));
+            open = empty_state(ui, t, "This workspace is empty", &hint, Some("Open command palette"));
+        });
+        if open {
+            app.push(Action::TogglePalette);
+        }
+        return;
+    }
     let now = app.session.now();
     let mut mine: Vec<_> = ws
         .issues
         .values()
         .filter(|i| i.assignee.as_deref() == Some(me.as_str()) && ws.status_category(i) != trackcraft_model::StatusCategory::Done)
         .collect();
-    mine.sort_by_key(|i| (trackcraft_model::priority_rank(&i.priority).unwrap_or(9), std::cmp::Reverse(i.updated)));
+    // Only the first ten are shown: a partial sort keeps 10 000 assigned issues cheap.
+    let rank = |i: &&trackcraft_model::Issue| (trackcraft_model::priority_rank(&i.priority).unwrap_or(9), std::cmp::Reverse(i.updated));
+    if mine.len() > 10 {
+        mine.select_nth_unstable_by_key(9, rank);
+        mine.truncate(10);
+    }
+    mine.sort_by_key(rank);
     let mut pages: Vec<_> = ws.pages.values().filter(|p| p.parent.is_some()).collect();
     pages.sort_by_key(|p| std::cmp::Reverse(p.updated));
     let mut actions = Vec::new();
@@ -253,12 +272,13 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
         if let Some(c) = cols.get_mut(0) {
             card(c, t, "Assigned to me", |ui| {
                 if mine.is_empty() {
-                    empty_state(ui, t, "Nothing assigned to you. Nice.");
+                    empty_state(ui, t, "", "Nothing assigned to you. Nice.", None);
                 }
-                for i in mine.iter().take(10) {
+                for i in &mine {
                     ui.horizontal(|ui| {
                         icons::issue_type(ui, &i.issue_type, 16.0);
-                        if ui.link(RichText::new(i.key.to_string()).color(t.muted).monospace()).clicked() || ui.link(&i.summary).clicked() {
+                        if ui.link(RichText::new(i.key.to_string()).color(t.muted).monospace()).clicked() || link_truncated(ui, &i.summary).clicked()
+                        {
                             actions.push(Action::Nav(View::Issue(i.key.clone())));
                         }
                     });
@@ -267,13 +287,21 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
         }
         if let Some(c) = cols.get_mut(1) {
             card(c, t, "Recently updated pages", |ui| {
+                if pages.is_empty() {
+                    empty_state(ui, t, "", "No pages yet. Pages you or your team write show up here.", None);
+                }
                 for p in pages.iter().take(10) {
                     ui.horizontal(|ui| {
                         icons::page(ui, t, 16.0);
-                        if ui.link(&p.title).clicked() {
-                            actions.push(Action::Nav(View::Page(p.id)));
-                        }
-                        ui.label(RichText::new(format!("{} · {}", p.space, crate::ago(now, p.updated))).color(t.muted).size(12.0));
+                        // Right to left: the meta text keeps its place, the title truncates.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(RichText::new(format!("{} · {}", p.space, crate::ago(now, p.updated))).color(t.muted).size(12.0));
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                if link_truncated(ui, &p.title).clicked() {
+                                    actions.push(Action::Nav(View::Page(p.id)));
+                                }
+                            });
+                        });
                     });
                 }
             });
