@@ -26,7 +26,11 @@ pub use tracker::{
     Change, Comment, HISTORY_PREVIEW, Issue, IssueLink, IssueType, LinkKind, MAX_HISTORY, NewIssue, PRIORITIES, Project, ProjectKind,
     RESOLUTION_DONE, Status, StatusCategory, Transition, Workflow, priority_rank,
 };
-pub use wiki::{NewPage, Page, PageEdit, PageVersion, Space};
+pub use wiki::{
+    AnchorLocation, BUILTIN_TEMPLATES, BuiltinTemplate, CopyPage, InlineAnchor, MAX_COMMENT_CHARS, MAX_COPY, MAX_PAGE_COMMENTS, MAX_QUOTE_CHARS,
+    MAX_TEMPLATE_BYTES, MAX_TEMPLATES, NewPage, NewPageComment, NewTemplate, Page, PageComment, PageEdit, PageVersion, Placement, ResolvedTemplate,
+    Space, Template, builtin_template, expand_doc, expand_placeholders, locate_anchor,
+};
 
 /// Bumped whenever the saved shape changes; `store` migrates older files.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -94,6 +98,9 @@ pub struct Workspace {
     /// Sprints of every project (added in schema 1; older files load with none).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sprints: BTreeMap<Id, Sprint>,
+    /// Saved page templates, workspace-wide or per space (older files load with none).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub templates: BTreeMap<Id, Template>,
     pub ids: IdGen,
     /// Transient (never saved): whether history entries are being grouped into one change.
     #[serde(skip)]
@@ -126,6 +133,7 @@ impl Workspace {
             spaces: BTreeMap::new(),
             pages: BTreeMap::new(),
             sprints: BTreeMap::new(),
+            templates: BTreeMap::new(),
             ids: IdGen::default(),
             batch: Batch::Off,
         }
