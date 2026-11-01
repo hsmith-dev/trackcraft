@@ -262,3 +262,279 @@ fn jql_history_over_issues() {
     let i = w.issue("ATLAS-1").unwrap();
     assert!(matches(&q, &IssueRecord { ws: &w, issue: i }, &cx).is_err());
 }
+
+// ---- rank ------------------------------------------------------------------------------------
+
+#[test]
+fn rank_between_neighbours_and_ends() {
+    let r = |lo: Option<&str>, hi: Option<&str>| rank_between(lo, hi).unwrap();
+    assert_eq!(r(None, None), "i");
+    let mid = r(Some("a"), Some("b"));
+    assert!("a" < mid.as_str() && mid.as_str() < "b", "{mid}");
+    let tight = r(Some("a"), Some("a1"));
+    assert!("a" < tight.as_str() && tight.as_str() < "a1", "{tight}");
+    let first = r(None, Some("1"));
+    assert!(first.as_str() < "1" && is_valid_rank(&first), "{first}");
+    let last = r(Some("zzzzzz"), None);
+    assert!(last.as_str() > "zzzzzz" && is_valid_rank(&last), "{last}");
+    assert!(r(None, Some("i")).as_str() < "i");
+    assert!(r(Some("i"), None).as_str() > "i");
+    // Malformed or reversed input gives None, never a panic.
+    assert_eq!(rank_between(Some("b"), Some("a")), None);
+    assert_eq!(rank_between(Some("a"), Some("a")), None);
+    assert_eq!(rank_between(Some("A!"), None), None);
+    assert_eq!(rank_between(Some("a0"), None), None, "trailing zeros are not ranks");
+    assert_eq!(rank_between(None, Some("")), None);
+}
+
+#[test]
+fn rebalanced_ranks_are_ordered_short_and_leave_room() {
+    for n in [0, 1, 2, 10, 1000, 50_000] {
+        let r = rebalanced(n);
+        assert_eq!(r.len(), n);
+        assert!(r.windows(2).all(|w| w[0] < w[1]), "ordered for {n}");
+        assert!(r.iter().all(|x| is_valid_rank(x)), "valid for {n}");
+    }
+    let r = rebalanced(3);
+    assert!(rank_between(None, r.first().map(String::as_str)).is_some());
+    assert!(rank_between(r.last().map(String::as_str), None).is_some_and(|x| x.len() <= 6));
+}
+
+#[test]
+fn ranks_between_fits_many_in_a_tight_gap() {
+    let v = ranks_between(Some("a"), Some("a1"), 1000).unwrap();
+    assert_eq!(v.len(), 1000);
+    assert!(v.windows(2).all(|w| w[0] < w[1]));
+    assert!(v.first().is_some_and(|x| x.as_str() > "a") && v.last().is_some_and(|x| x.as_str() < "a1"));
+    let tail = ranks_between(Some("z"), None, 50).unwrap();
+    assert!(tail.windows(2).all(|w| w[0] < w[1]) && tail[0].as_str() > "z");
+    let head = ranks_between(None, Some("1"), 50).unwrap();
+    assert!(head.windows(2).all(|w| w[0] < w[1]) && head[49].as_str() < "1");
+}
+
+fn order(w: &Workspace) -> Vec<String> {
+    w.rank_order(&w.project("ATLAS").unwrap().key).iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn new_issues_rank_at_the_bottom_and_moves_keep_order() {
+    let mut w = ws();
+    for n in 1..=5 {
+        w.create_issue(new(&format!("i{n}")), "ann", t(1)).unwrap();
+    }
+    assert_eq!(order(&w), ["ATLAS-1", "ATLAS-2", "ATLAS-3", "ATLAS-4", "ATLAS-5"]);
+    w.rank_issues(&["ATLAS-5".into(), "ATLAS-4".into()], Anchor::Before("ATLAS-2")).unwrap();
+    assert_eq!(order(&w), ["ATLAS-1", "ATLAS-5", "ATLAS-4", "ATLAS-2", "ATLAS-3"]);
+    w.rank_issues(&["ATLAS-1".into()], Anchor::After("ATLAS-3")).unwrap();
+    assert_eq!(order(&w), ["ATLAS-5", "ATLAS-4", "ATLAS-2", "ATLAS-3", "ATLAS-1"]);
+    w.rank_issues(&["ATLAS-3".into()], Anchor::Before("ATLAS-5")).unwrap();
+    assert_eq!(order(&w), ["ATLAS-3", "ATLAS-5", "ATLAS-4", "ATLAS-2", "ATLAS-1"]);
+    assert!(w.rank_issues(&["ATLAS-3".into()], Anchor::Before("ATLAS-3")).is_err(), "anchor can't be moved");
+    assert!(w.rank_issues(&[], Anchor::Before("ATLAS-3")).is_err());
+    assert!(w.rank_issues(&["ATLAS-9".into()], Anchor::Before("ATLAS-3")).is_err());
+    assert!(w.rank_issues(&vec!["ATLAS-1".to_string(); MAX_MOVE + 1], Anchor::Before("ATLAS-3")).is_err());
+    w.create_project("OTHER", "Other", ProjectKind::Software, None).unwrap();
+    w.create_issue(NewIssue { project: "OTHER".into(), ..new("o") }, "ann", t(1)).unwrap();
+    assert!(w.rank_issues(&["OTHER-1".into()], Anchor::Before("ATLAS-3")).is_err(), "one project");
+    assert!(w.rank_issues(&["OTHER-1".into(), "ATLAS-1".into()], Anchor::Before("ATLAS-3")).is_err());
+    // Ranking is not history-worthy.
+    assert_eq!(w.issue("ATLAS-3").unwrap().history.len(), 1);
+}
+
+#[test]
+fn repeated_inserts_at_one_spot_stay_ordered_and_bounded() {
+    let mut w = ws();
+    for n in 1..=3 {
+        w.create_issue(new(&format!("i{n}")), "ann", t(1)).unwrap();
+    }
+    // 600 issues, each ranked right after the previous one, just after ATLAS-1: the gap narrows
+    // every time, so the project rebalances when keys get long.
+    let mut want = vec!["ATLAS-1".to_string()];
+    let mut prev = "ATLAS-1".to_string();
+    for _ in 0..600 {
+        let k = w.create_issue(new("x"), "ann", t(1)).unwrap().to_string();
+        w.rank_issues(std::slice::from_ref(&k), Anchor::After(&prev)).unwrap();
+        want.push(k.clone());
+        prev = k;
+    }
+    want.extend(["ATLAS-2".to_string(), "ATLAS-3".to_string()]);
+    assert_eq!(order(&w), want);
+    assert!(w.issues.values().all(|i| is_valid_rank(&i.rank) && i.rank.len() <= MAX_RANK_LEN));
+    // And 600 inserted at the same spot (always just before ATLAS-2).
+    for _ in 0..600 {
+        let k = w.create_issue(new("y"), "ann", t(1)).unwrap().to_string();
+        w.rank_issues(&[k], Anchor::Before("ATLAS-2")).unwrap();
+    }
+    let o = order(&w);
+    assert_eq!(o.first().map(String::as_str), Some("ATLAS-1"));
+    assert_eq!(&o[o.len() - 2..], ["ATLAS-2", "ATLAS-3"]);
+    let ranks: Vec<&str> = w.rank_order(&w.project("ATLAS").unwrap().key).iter().map(|k| w.issues[k].rank.as_str()).collect();
+    assert!(ranks.windows(2).all(|p| p[0] < p[1]), "unique and ordered");
+    assert!(ranks.iter().all(|r| r.len() <= MAX_RANK_LEN));
+}
+
+#[test]
+fn repair_ranks_unranked_issues_in_key_order() {
+    let mut w = ws();
+    for n in 1..=4 {
+        w.create_issue(new(&format!("i{n}")), "ann", t(1)).unwrap();
+    }
+    w.rank_issues(&["ATLAS-4".into()], Anchor::Before("ATLAS-1")).unwrap();
+    let good = w.clone();
+    w.repair();
+    assert_eq!(w, good, "valid ranks untouched");
+    for i in w.issues.values_mut() {
+        i.rank.clear();
+    }
+    w.repair();
+    assert_eq!(order(&w), ["ATLAS-1", "ATLAS-2", "ATLAS-3", "ATLAS-4"]);
+    // Duplicates and junk: the valid order first, then the rest by key.
+    let mut w = good.clone();
+    let r = w.issue("ATLAS-1").unwrap().rank.clone();
+    for i in w.issues.values_mut() {
+        if i.key.number == 2 {
+            i.rank = r.clone();
+        }
+        if i.key.number == 3 {
+            i.rank = "NOT A RANK".into();
+        }
+    }
+    w.repair();
+    let ranks: std::collections::BTreeSet<_> = w.issues.values().map(|i| i.rank.clone()).collect();
+    assert_eq!(ranks.len(), 4);
+    assert_eq!(order(&w).last().map(String::as_str), Some("ATLAS-3"));
+}
+
+// ---- sprints ---------------------------------------------------------------------------------
+
+fn sprint_ws() -> (Workspace, Id) {
+    let mut w = ws();
+    for n in 1..=4 {
+        w.create_issue(new(&format!("i{n}")), "ann", t(1)).unwrap();
+    }
+    let s = w.create_sprint("atlas", None, Some("Ship it"), None, None).unwrap();
+    (w, s)
+}
+
+#[test]
+fn sprint_lifecycle() {
+    let (mut w, s) = sprint_ws();
+    assert_eq!(w.sprint(s).unwrap().name, "ATLAS Sprint 1");
+    assert_eq!(w.sprint(s).unwrap().state, SprintState::Future);
+    assert!(w.start_sprint(s, t(1), t(9), None).is_err(), "no issues yet");
+    w.set_sprint(&["ATLAS-1".into(), "ATLAS-2".into()], Some(s), "ann", t(2)).unwrap();
+    let h = w.issue("ATLAS-1").unwrap().history.last().unwrap().clone();
+    assert_eq!((h.field.as_str(), h.from.clone(), h.to.clone()), ("sprint", None, Some("ATLAS Sprint 1".into())));
+    assert!(w.start_sprint(s, t(9), t(1), None).is_err(), "end before start");
+    w.start_sprint(s, t(1), t(9), Some("Ship it now")).unwrap();
+    assert_eq!(w.sprint(s).unwrap().state, SprintState::Active);
+    assert_eq!(w.sprint(s).unwrap().goal, "Ship it now");
+    assert!(w.start_sprint(s, t(1), t(9), None).is_err(), "already active");
+
+    let s2 = w.create_sprint("ATLAS", None, None, None, None).unwrap();
+    assert_eq!(w.sprint(s2).unwrap().name, "ATLAS Sprint 2");
+    w.set_sprint(&["ATLAS-3".into()], Some(s2), "ann", t(2)).unwrap();
+    let e = w.start_sprint(s2, t(1), t(9), None).unwrap_err().to_string();
+    assert!(e.contains("already active"), "{e}");
+
+    w.transition("ATLAS-1", "Done", "ann", t(3)).unwrap();
+    let c = w.complete_sprint(s, MoveOpenTo::Sprint(s2), "bob", t(10)).unwrap();
+    assert_eq!(c.done.iter().map(ToString::to_string).collect::<Vec<_>>(), ["ATLAS-1"]);
+    assert_eq!(c.moved.iter().map(ToString::to_string).collect::<Vec<_>>(), ["ATLAS-2"]);
+    let sp = w.sprint(s).unwrap();
+    assert_eq!((sp.state, sp.completed), (SprintState::Closed, Some(t(10))));
+    let i1 = w.issue("ATLAS-1").unwrap();
+    assert_eq!((i1.sprint, i1.past_sprints.clone()), (None, vec![s]));
+    let i2 = w.issue("ATLAS-2").unwrap();
+    assert_eq!((i2.sprint, i2.past_sprints.clone()), (Some(s2), vec![s]));
+    let h = i2.history.last().unwrap();
+    assert_eq!((h.field.as_str(), h.author.as_str(), h.to.as_deref()), ("sprint", "bob", Some("ATLAS Sprint 2")));
+
+    // Closed sprints refuse changes.
+    assert!(w.set_sprint(&["ATLAS-4".into()], Some(s), "ann", t(11)).is_err());
+    assert!(w.delete_sprint(s, "ann", t(11)).is_err());
+    assert!(w.complete_sprint(s, MoveOpenTo::Backlog, "ann", t(11)).is_err());
+    assert!(w.edit_sprint(s, SprintEdit { start: Some(t(1)), ..SprintEdit::default() }).is_err());
+    w.edit_sprint(s, SprintEdit { name: Some("Renamed".into()), ..SprintEdit::default() }).unwrap();
+    assert!(w.complete_sprint(s2, MoveOpenTo::Backlog, "ann", t(11)).is_err(), "not active");
+    assert!(w.complete_sprint(s2, MoveOpenTo::Sprint(s), "ann", t(11)).is_err());
+
+    // Complete into a new sprint.
+    w.start_sprint(s2, t(11), t(20), None).unwrap();
+    assert!(w.complete_sprint(s2, MoveOpenTo::Sprint(s), "ann", t(20)).is_err(), "can't move into a closed sprint");
+    let c = w.complete_sprint(s2, MoveOpenTo::New, "ann", t(20)).unwrap();
+    let new_id = c.to.unwrap();
+    assert_eq!(w.sprint(new_id).unwrap().state, SprintState::Future);
+    assert_eq!(w.issue("ATLAS-2").unwrap().sprint, Some(new_id));
+    assert_eq!(w.issue("ATLAS-2").unwrap().past_sprints, vec![s, s2]);
+}
+
+#[test]
+fn sprint_refusals_and_delete() {
+    let (mut w, s) = sprint_ws();
+    assert!(w.create_sprint("NOPE", None, None, None, None).is_err());
+    assert!(w.create_sprint("ATLAS", Some("x\ny"), None, None, None).is_err());
+    assert!(w.create_sprint("ATLAS", None, Some(&"g".repeat(MAX_GOAL + 1)), None, None).is_err());
+    assert!(w.create_sprint("ATLAS", None, None, Some(t(5)), Some(t(5))).is_err());
+    assert!(w.sprint(Id(999_999)).is_err());
+    assert!(w.set_sprint(&["ATLAS-1".into()], Some(Id(999_999)), "ann", t(1)).is_err());
+    w.create_project("OTHER", "Other", ProjectKind::Software, None).unwrap();
+    w.create_issue(NewIssue { project: "OTHER".into(), ..new("o") }, "ann", t(1)).unwrap();
+    assert!(w.set_sprint(&["OTHER-1".into()], Some(s), "ann", t(1)).is_err(), "another project's sprint");
+
+    // Sub-tasks follow their parent.
+    w.create_issue(NewIssue { issue_type: Some("Sub-task".into()), parent: Some("ATLAS-1".into()), ..new("sub") }, "ann", t(1)).unwrap();
+    assert!(w.set_sprint(&["ATLAS-5".into()], Some(s), "ann", t(1)).is_err());
+    w.set_sprint(&["ATLAS-1".into()], Some(s), "ann", t(2)).unwrap();
+    assert_eq!(w.issue("ATLAS-5").unwrap().sprint, Some(s));
+    w.create_issue(NewIssue { issue_type: Some("Sub-task".into()), parent: Some("ATLAS-1".into()), ..new("sub2") }, "ann", t(1)).unwrap();
+    assert_eq!(w.issue("ATLAS-6").unwrap().sprint, Some(s), "a new sub-task joins its parent's sprint");
+
+    // A sprint of only done issues can't start.
+    for k in ["ATLAS-1", "ATLAS-5", "ATLAS-6"] {
+        w.transition(k, "Done", "ann", t(3)).unwrap();
+    }
+    assert!(w.start_sprint(s, t(1), t(9), None).unwrap_err().to_string().contains("no open issues"));
+
+    let back = w.delete_sprint(s, "bob", t(4)).unwrap();
+    assert_eq!(back.len(), 3);
+    assert!(w.sprints.is_empty());
+    let i = w.issue("ATLAS-1").unwrap();
+    assert_eq!(i.sprint, None);
+    assert_eq!(i.history.last().map(|c| (c.field.as_str(), c.from.as_deref())), Some(("sprint", Some("ATLAS Sprint 1"))));
+}
+
+#[test]
+fn jql_sprint_fields_and_functions() {
+    let (mut w, s) = sprint_ws();
+    w.set_sprint(&["ATLAS-1".into(), "ATLAS-2".into()], Some(s), "ann", t(2)).unwrap();
+    w.start_sprint(s, t(1), t(9), None).unwrap();
+    w.transition("ATLAS-1", "Done", "ann", t(3)).unwrap();
+    let s2 = w.create_sprint("ATLAS", Some("Next"), None, None, None).unwrap();
+    w.set_sprint(&["ATLAS-3".into()], Some(s2), "ann", t(2)).unwrap();
+    let keys = |w: &Workspace, q: &str| -> Vec<String> {
+        let q = parse(q).unwrap();
+        let cx = Context { current_user: None, now: t(12) };
+        let mut hits: Vec<IssueRecord<'_>> =
+            w.issues.values().map(|issue| IssueRecord { ws: w, issue }).filter(|r| matches(&q, r, &cx).unwrap()).collect();
+        trackcraft_jql::sort(&q, &mut hits);
+        hits.iter().map(|r| r.issue.key.to_string()).collect()
+    };
+    assert_eq!(keys(&w, &format!("sprint = {} ORDER BY key", s.0)), ["ATLAS-1", "ATLAS-2"]);
+    assert_eq!(keys(&w, r#"sprint = "ATLAS Sprint 1" ORDER BY key"#), ["ATLAS-1", "ATLAS-2"]);
+    assert_eq!(keys(&w, "sprint IN openSprints() ORDER BY key"), ["ATLAS-1", "ATLAS-2", "ATLAS-3"]);
+    assert_eq!(keys(&w, "sprint IN closedSprints()"), [] as [&str; 0]);
+    assert_eq!(keys(&w, "sprint IS EMPTY"), ["ATLAS-4"]);
+    assert_eq!(keys(&w, "sprint NOT IN openSprints()"), [] as [&str; 0]);
+    w.complete_sprint(s, MoveOpenTo::Backlog, "ann", t(10)).unwrap();
+    assert_eq!(keys(&w, "sprint IN closedSprints() ORDER BY key"), ["ATLAS-1", "ATLAS-2"]);
+    assert_eq!(keys(&w, "sprint IN openSprints()"), ["ATLAS-3"]);
+    assert_eq!(keys(&w, "sprint = Next"), ["ATLAS-3"]);
+    // ORDER BY rank follows the backlog order, byte-wise.
+    w.rank_issues(&["ATLAS-4".into(), "ATLAS-3".into()], Anchor::Before("ATLAS-1")).unwrap();
+    assert_eq!(keys(&w, "ORDER BY rank"), ["ATLAS-4", "ATLAS-3", "ATLAS-1", "ATLAS-2"]);
+    assert_eq!(keys(&w, "ORDER BY rank DESC"), ["ATLAS-2", "ATLAS-1", "ATLAS-3", "ATLAS-4"]);
+    let q = parse("sprint IN futureSprints()").unwrap();
+    let r = IssueRecord { ws: &w, issue: w.issue("ATLAS-1").unwrap() };
+    assert!(matches(&q, &r, &Context { current_user: None, now: t(12) }).is_err(), "unknown list function");
+}

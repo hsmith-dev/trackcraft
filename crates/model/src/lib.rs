@@ -6,6 +6,8 @@
 //! and permissions. No method panics on bad input — each returns a [`ModelError`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod agile;
+mod rank;
 mod record;
 mod tracker;
 mod wiki;
@@ -15,6 +17,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use trackcraft_core::{Id, IdGen, IssueKey, ProjectKey};
 
+pub use agile::{Anchor, Completion, MAX_GOAL, MAX_MOVE, MAX_SPRINTS, MoveOpenTo, Sprint, SprintEdit, SprintState};
+pub use rank::{MAX_RANK_LEN, is_valid_rank, rank_between, ranks_between, rebalanced};
 pub use record::IssueRecord;
 pub use trackcraft_core::Timestamp;
 pub use trackcraft_markup::Doc;
@@ -87,6 +91,9 @@ pub struct Workspace {
     pub issues: BTreeMap<IssueKey, Issue>,
     pub spaces: BTreeMap<ProjectKey, Space>,
     pub pages: BTreeMap<Id, Page>,
+    /// Sprints of every project (added in schema 1; older files load with none).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sprints: BTreeMap<Id, Sprint>,
     pub ids: IdGen,
     /// Transient (never saved): whether history entries are being grouped into one change.
     #[serde(skip)]
@@ -118,6 +125,7 @@ impl Workspace {
             issues: BTreeMap::new(),
             spaces: BTreeMap::new(),
             pages: BTreeMap::new(),
+            sprints: BTreeMap::new(),
             ids: IdGen::default(),
             batch: Batch::Off,
         }

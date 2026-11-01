@@ -25,6 +25,9 @@ pub enum FieldValue {
         name: String,
         rank: i64,
     },
+    /// Text that sorts by plain byte order, not naturally (rank keys: `i8` < `i9` < `ia`).
+    /// Compares like [`FieldValue::Text`] for `=`/`~`.
+    Lexical(String),
 }
 
 /// One change of a field's value, for `WAS` and `CHANGED`.
@@ -58,6 +61,12 @@ pub trait Record {
     /// The value history of `name` for `WAS`/`CHANGED`; `None` when the field keeps no history
     /// (the clause is then an error).
     fn history(&self, _name: &str) -> Option<FieldHistory> {
+        None
+    }
+    /// A list function the record's data knows (`openSprints()`, `closedSprints()`): the values
+    /// it stands for in `IN`/`NOT IN` lists, or `None` when unknown (then an error). Keeps this
+    /// crate data-agnostic: the record, which sees the workspace, answers.
+    fn function(&self, _name: &str, _args: &[String]) -> Option<Vec<String>> {
         None
     }
 }
@@ -249,7 +258,7 @@ fn clause(field: &str, op: Op, value: &Operand, r: &dyn Record, cx: &Context) ->
     let fv = if is_text_field { FieldValue::Text(r.text()) } else { r.field(field) };
     let empty = match &fv {
         FieldValue::None => true,
-        FieldValue::Text(s) => s.is_empty(),
+        FieldValue::Text(s) | FieldValue::Lexical(s) => s.is_empty(),
         FieldValue::Many(v) => v.is_empty(),
         _ => false,
     };
@@ -260,6 +269,15 @@ fn clause(field: &str, op: Op, value: &Operand, r: &dyn Record, cx: &Context) ->
             let Operand::List(items) = value else { return Ok(false) };
             let mut hit = false;
             for it in items {
+                if let Operand::Func(name, args) = it
+                    && let Some(values) = r.function(name, args)
+                {
+                    if values.iter().any(|v| equals(&fv, &Operand::Value(v.clone()), cx).unwrap_or(false)) {
+                        hit = true;
+                        break;
+                    }
+                    continue;
+                }
                 if equals(&fv, it, cx)? {
                     hit = true;
                     break;
@@ -275,7 +293,7 @@ fn clause(field: &str, op: Op, value: &Operand, r: &dyn Record, cx: &Context) ->
         Op::Contains | Op::NotContains => {
             let needle = resolve_text(value, cx)?.to_lowercase();
             let hay = match &fv {
-                FieldValue::Text(s) => s.to_lowercase(),
+                FieldValue::Text(s) | FieldValue::Lexical(s) => s.to_lowercase(),
                 FieldValue::Many(v) => v.join(" ").to_lowercase(),
                 FieldValue::Ranked { name, .. } => name.to_lowercase(),
                 _ => String::new(),
@@ -328,7 +346,7 @@ fn equals(fv: &FieldValue, v: &Operand, cx: &Context) -> Result<bool, JqlError> 
     let want = resolve_text(v, cx)?;
     Ok(match fv {
         FieldValue::None => false,
-        FieldValue::Text(s) => s.eq_ignore_ascii_case(&want),
+        FieldValue::Text(s) | FieldValue::Lexical(s) => s.eq_ignore_ascii_case(&want),
         FieldValue::Many(list) => list.iter().any(|s| s.eq_ignore_ascii_case(&want)),
         FieldValue::Number(n) => want.parse::<f64>().is_ok_and(|w| (w - n).abs() < f64::EPSILON),
         FieldValue::Ranked { name, .. } => name.eq_ignore_ascii_case(&want),
@@ -343,7 +361,7 @@ fn ordered(fv: &FieldValue, v: &Operand, cx: &Context) -> Result<Option<Ordering
         // Comparing a ranked field needs the other side's rank, which only the record knows; the
         // model passes ranks as numbers (`priority > 2`) or names it resolves itself.
         FieldValue::Ranked { rank, .. } => resolve_text(v, cx)?.parse::<i64>().ok().map(|w| rank.cmp(&w)),
-        FieldValue::Text(s) => Some(s.to_lowercase().cmp(&resolve_text(v, cx)?.to_lowercase())),
+        FieldValue::Text(s) | FieldValue::Lexical(s) => Some(s.to_lowercase().cmp(&resolve_text(v, cx)?.to_lowercase())),
         FieldValue::Many(_) | FieldValue::None => None,
     })
 }
@@ -407,6 +425,7 @@ fn cmp_values(a: &FieldValue, b: &FieldValue) -> Ordering {
         (F::Time(x), F::Time(y)) => x.cmp(y),
         (F::Ranked { rank: x, .. }, F::Ranked { rank: y, .. }) => x.cmp(y),
         (F::Text(x), F::Text(y)) => natural(x, y),
+        (F::Lexical(x), F::Lexical(y)) => x.cmp(y),
         (F::Many(x), F::Many(y)) => x.join(",").to_lowercase().cmp(&y.join(",").to_lowercase()),
         _ => Ordering::Equal,
     }
