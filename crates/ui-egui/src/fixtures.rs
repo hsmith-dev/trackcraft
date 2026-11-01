@@ -5,11 +5,14 @@
 //! States no command can produce (a removed user, a status outside the workflow, a deleted
 //! parent) are made by editing the workspace struct directly, as a corrupt or migrated file would.
 //!
-//! Scripts: in the suite's egui fork the bundled proportional family is Ubuntu Light plus the
-//! egui icon font. It covers Latin (with diacritics), Greek and Cyrillic, but **not** emoji, CJK,
-//! Arabic or Devanagari. Those draw as tofu in the app (`MissingGlyphPolicy::Tofu`, egui's
-//! default: no panic), while egui_kittest panics on them by default, so [`stress`] keeps to
-//! covered scripts and [`StressSpec::uncovered_scripts`] adds the rest for harnesses built with
+//! Scripts: egui's bundled faces (Ubuntu Light, the egui icon font) cover Latin (with
+//! diacritics), Greek and Cyrillic, but **not** emoji, CJK, Arabic or Devanagari. The app's font
+//! stack (`crate::fonts`) adds those from embedded craft-fonts faces (builds with
+//! `CRAFT_FONTS_DIR`) and the installed system fonts; a machine with neither draws tofu
+//! (`MissingGlyphPolicy::Tofu`, no panic). egui_kittest panics on a missing glyph by default and
+//! its plain harness has only egui's faces, so [`stress`] keeps to the bundled scripts and
+//! [`StressSpec::uncovered_scripts`] adds [`UNCOVERED_TITLES`] for harnesses that install the
+//! font stack and either check coverage first (`crate::fonts::missing`) or are built with
 //! `allow_missing_glyphs()`.
 
 use serde_json::{Value, json};
@@ -22,7 +25,8 @@ use trackcraft_model::{NewIssue, Timestamp, Workspace};
 pub struct StressSpec {
     /// Issues in the BIG project.
     pub issues: usize,
-    /// Add emoji, CJK, Arabic and Devanagari text (not in the bundled fonts: tofu).
+    /// Add [`UNCOVERED_TITLES`] (emoji, CJK, Arabic, Devanagari) as INTL issues and an
+    /// [`INTL_PAGE`] page: not in egui's bundled faces.
     pub uncovered_scripts: bool,
 }
 
@@ -46,6 +50,13 @@ pub const LONG_WORD_ISSUE: &str = "LONG-5";
 pub const ORPHAN_STATUS: &str = "Legacy triage";
 /// The user id removed from the users map (assignee / reporter / comment author).
 pub const GONE_USER: &str = "ghost-user-0042";
+
+/// Issue titles in scripts egui's bundled faces lack (INTL-4 to INTL-7 with
+/// [`StressSpec::uncovered_scripts`]).
+pub const UNCOVERED_TITLES: [&str; 4] =
+    ["Emoji 🚀🔥✅ everywhere 🎉 in the title 🐛", "同步大量笔记时出现错误", "خطأ في المزامنة عند وجود ملاحظات كثيرة", "बहुत सारे नोट्स होने पर सिंक त्रुटि"];
+/// The title of the HUGE-space page whose body is every INTL title.
+pub const INTL_PAGE: &str = "多语言 · متعدد اللغات · बहुभाषी";
 
 /// A workspace with nothing in it but the acting user.
 pub fn empty() -> Workspace {
@@ -118,12 +129,7 @@ pub fn stress_with(clock: fn() -> Timestamp, spec: StressSpec) -> Workspace {
         "Ünïcödé dïäcrïtïcs: façade, naïve, Ångström, ŁÓDŹ",
     ];
     if spec.uncovered_scripts {
-        intl.extend([
-            "Emoji 🚀🔥✅ everywhere 🎉 in the title 🐛",
-            "同步大量笔记时出现错误",
-            "خطأ في المزامنة عند وجود ملاحظات كثيرة",
-            "बहुत सारे नोट्स होने पर सिंक त्रुटि",
-        ]);
+        intl.extend(UNCOVERED_TITLES);
     }
     for t in &intl {
         run(&mut s, "issue.create", json!({"project": "INTL", "summary": t, "assignee": "ivan"}));
@@ -153,7 +159,7 @@ pub fn stress_with(clock: fn() -> Timestamp, spec: StressSpec) -> Workspace {
     }
     run(&mut s, "page.create", json!({"space": "HUGE", "title": "Five thousand lines", "body": body}));
     if spec.uncovered_scripts {
-        run(&mut s, "page.create", json!({"space": "HUGE", "title": "多语言 · متعدد اللغات · बहुभाषी", "body": intl.join("\n\n")}));
+        run(&mut s, "page.create", json!({"space": "HUGE", "title": INTL_PAGE, "body": intl.join("\n\n")}));
     }
 
     let mut w = std::mem::take(&mut s.ws);

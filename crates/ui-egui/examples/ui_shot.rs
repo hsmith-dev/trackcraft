@@ -10,7 +10,9 @@
 //!
 //! A first line `{"fixture": "stress" | "empty" | "stress-intl"}` opens a hostile-data fixture
 //! instead (see `trackcraft_ui_egui::fixtures`). `stress-intl` adds emoji, CJK, Arabic and
-//! Devanagari text, which the bundled font lacks: it draws tofu, as the app does.
+//! Devanagari text. The app's font stack (`trackcraft_ui_egui::fonts`) is installed, waiting for
+//! the system font index, so these draw with real glyphs where the machine (or an embedded
+//! craft-fonts face) has them, and as tofu where it doesn't.
 
 use trackcraft_engine::Session;
 use trackcraft_ui_egui::TrackApp;
@@ -49,6 +51,7 @@ fn main() {
         },
         app,
     );
+    trackcraft_ui_egui::fonts::install_waiting(&harness.ctx); // fonts
     harness.run_steps(4);
     for l in lines {
         if l.get("fixture").is_some() {

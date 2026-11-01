@@ -385,6 +385,9 @@ fn main() -> std::process::ExitCode {
         "TrackCraft",
         options,
         Box::new(move |cc| {
+            // fonts: scripts and emoji beyond egui's bundled Latin/Greek/Cyrillic faces.
+            trackcraft_ui_egui::fonts::install(&cc.egui_ctx);
+
             if let Some(server) = server {
                 let ctx = cc.egui_ctx.clone();
                 let (rx, key_file) = server.serve(move || ctx.request_repaint());

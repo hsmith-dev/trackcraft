@@ -1,0 +1,7 @@
+{"fixture":"stress-intl"}
+{"method":"ui.navigate","params":{"view":"board","project":"INTL"}}
+{"shot":"/tmp/tc-shots/intl-board.png"}
+{"method":"ui.navigate","params":{"view":"issue","key":"INTL-6"}}
+{"shot":"/tmp/tc-shots/intl-issue-arabic.png"}
+{"method":"ui.navigate","params":{"view":"page","id":80}}
+{"shot":"/tmp/tc-shots/intl-page.png"}

@@ -1,8 +1,11 @@
 //! Hostile data (UI-6): the stress and empty fixtures (`crate::fixtures`) in every view.
 //!
-//! The stress fixture keeps to scripts the bundled font covers (Latin, Greek, Cyrillic); emoji,
-//! CJK, Arabic and Devanagari draw as tofu, so their test builds its harness with
-//! `allow_missing_glyphs()` (the app's own policy) instead of kittest's default panic.
+//! The stress fixture keeps to scripts egui's bundled faces cover (Latin, Greek, Cyrillic). The
+//! emoji, CJK, Arabic and Devanagari titles need the app's font stack (`crate::fonts`): one test
+//! renders them tofu-tolerant (`allow_missing_glyphs()`, the app's own policy) on any machine; the
+//! other asserts real glyphs (kittest's panic policy) when this machine's system fonts and the
+//! embedded craft-fonts faces cover them, and skips with a message when they don't (CI runners
+//! without CJK or emoji fonts).
 
 use std::time::{Duration, Instant};
 
@@ -90,25 +93,74 @@ fn every_view_survives_the_stress_fixture_in_both_themes() {
     }
 }
 
-#[test]
-fn uncovered_scripts_draw_tofu_without_panicking() {
+/// A harness on the stress fixture with [`StressSpec::uncovered_scripts`], with the app's font
+/// stack installed (waiting for the system font index) and missing glyphs drawn as tofu.
+fn intl_harness() -> (Harness<'static, TrackApp>, craft_ui::fonts::Stack) {
     let ws = fixtures::stress_with(fixed_now, StressSpec { issues: 50, uncovered_scripts: true });
-    let app = on(ws);
-    let mut h = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).allow_missing_glyphs().build_ui_state(
+    let h = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).allow_missing_glyphs().build_ui_state(
         |ui, app: &mut TrackApp| {
             let ctx = ui.ctx().clone();
             app.logic(&ctx);
             app.ui(ui);
         },
-        app,
+        on(ws),
     );
-    let intl: Vec<IssueKey> = h.state().session.ws.issues.keys().filter(|k| k.project == pk("INTL")).cloned().collect();
+    let stack = crate::fonts::install_waiting(&h.ctx);
+    (h, stack)
+}
+
+fn intl_issues(app: &TrackApp) -> Vec<IssueKey> {
+    app.session.ws.issues.keys().filter(|k| k.project == pk("INTL")).cloned().collect()
+}
+
+#[test]
+fn uncovered_scripts_draw_without_panicking() {
+    let (mut h, _) = intl_harness();
+    let intl = intl_issues(h.state());
     assert!(intl.len() >= 7);
     for k in intl {
         h.state_mut().navigate(View::Issue(k));
         h.run_steps(2);
     }
     render_all(&mut h, Duration::from_secs(20));
+}
+
+#[test]
+fn uncovered_scripts_draw_real_glyphs_when_fonts_are_available() {
+    let (mut h, stack) = intl_harness();
+    let text = fixtures::UNCOVERED_TITLES.concat() + fixtures::INTL_PAGE;
+    let missing = crate::fonts::missing(&stack, &text);
+    if !missing.is_empty() {
+        eprintln!(
+            "skipped: no installed or embedded font draws {missing:?} on this machine \
+             (install CJK / emoji fonts, or build with CRAFT_FONTS_DIR)"
+        );
+        return;
+    }
+    // From here a missing glyph panics, as in every other UI test.
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Panic);
+    let page = page_titled(h.state(), fixtures::INTL_PAGE);
+    let mut views: Vec<View> = intl_issues(h.state()).into_iter().map(View::Issue).collect();
+    views.extend([View::Issues, View::Page(page), View::Board(pk("INTL"))]);
+    for v in views {
+        h.state_mut().navigate(v);
+        h.run_steps(3);
+    }
+    // The board shows every INTL card.
+    for title in fixtures::UNCOVERED_TITLES {
+        assert!(h.query_all_by_label_contains(title).count() > 0, "no card titled {title:?}");
+    }
+}
+
+#[test]
+fn embedded_craft_fonts_cover_arabic_and_devanagari_without_system_fonts() {
+    if crate::fonts::CRAFT_FONTS.is_empty() {
+        eprintln!("skipped: built without CRAFT_FONTS_DIR, so no craft-fonts face is embedded");
+        return;
+    }
+    let stack = crate::fonts::install(&egui::Context::default());
+    let samples = fixtures::UNCOVERED_TITLES[2..].iter().map(|t| craft_ui::fonts::Sample { language: "en", key: "title", text: t });
+    craft_ui::fonts::assert_covers(&stack, samples);
 }
 
 #[test]

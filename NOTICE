@@ -9,8 +9,11 @@ describe compatibility.
 
 Third-party material
 
-TrackCraft currently bundles no third-party assets. The per-file list (author, source, licence)
-is in ATTRIBUTION.md. Rust dependencies (serde, serde_json, chrono, thiserror, web-time, …) are
+This repository holds no third-party asset files. The per-file list (author, source, licence)
+is in ATTRIBUTION.md. Builds made with CRAFT_FONTS_DIR (as CI's are) embed Noto Sans fonts for
+Arabic, Devanagari, Hebrew, Thai, Georgian and symbols from storytold/craft-fonts, under the SIL
+Open Font License 1.1 (listed in ATTRIBUTION.md; licence texts in craft-fonts). egui's bundled
+fonts come with the egui crate, under their own licences. Rust dependencies (serde, serde_json, chrono, thiserror, web-time, …) are
 permissively licensed (MIT/Apache-2.0) and fetched through crates.io.
 
 No Atlassian (or other vendor) icons, logos, images, templates or artwork are included.

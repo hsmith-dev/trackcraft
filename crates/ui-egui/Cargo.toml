@@ -14,8 +14,20 @@ trackcraft-model.workspace = true
 trackcraft-engine.workspace = true
 egui = { workspace = true, features = ["default_fonts"] }
 egui_extras.workspace = true
-craft-ui.workspace = true
+# fonts: installed system fonts as fallbacks for scripts and emoji (desktop only; craft-ui leaves
+# them out on wasm), and colour emoji glyphs (sbix, COLR, CBDT).
+craft-ui = { workspace = true, features = ["system_fonts", "color_fonts"] }
+# fonts: the `EmbeddedFace` type of the table build.rs writes (craft-fonts, when CRAFT_FONTS_DIR is set).
+craft-fonts-build = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
 serde_json.workspace = true
+
+# fonts: the web has no system fonts, so its emoji come from egui's bundled monochrome Noto Emoji.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+egui = { workspace = true, features = ["default_fonts", "monochrome_emoji_fonts"] }
+
+[build-dependencies]
+# fonts: embeds the optional craft-fonts faces (see build.rs).
+craft-fonts-build = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }

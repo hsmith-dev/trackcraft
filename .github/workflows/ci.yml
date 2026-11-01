@@ -21,8 +21,10 @@ jobs:
     # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
     with:
-      # The UI uses egui's bundled fonts; craft-fonts isn't needed yet.
-      craft-fonts-ref: ""
+      # Same craft-fonts commit as the sibling apps (Wordcraft, Gridcraft, Pdfcraft, Photocraft).
+      # crates/ui-egui/build.rs embeds its non-CJK faces (Arabic, Devanagari, Hebrew, Thai,
+      # Georgian, symbols), so tests also run against the fonts a release ships.
+      craft-fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
       # The desktop app's windowing and GPU dependencies (same list as the sibling apps).
       packages: >-
         pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
