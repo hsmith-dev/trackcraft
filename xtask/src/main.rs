@@ -17,6 +17,7 @@ commands:
   assets    check that every icon/image/font/asset is attributed in ATTRIBUTION.md
   layers    enforce the crate dependency layering (docs/architecture.md)
   wasm      cargo check --target wasm32-unknown-unknown for the wasm-safe crates
+  web       build the web client into dist/web with trunk (skipped when trunk isn't installed)
   parity    regenerate docs/parity-checklist.md from crates/engine/src/catalog.rs
             (--check: fail if the committed file is stale)
 ";
@@ -57,6 +58,7 @@ const WASM_CRATES: &[&str] = &[
     "trackcraft-import",
     "trackcraft-engine",
     "trackcraft-ui-egui",
+    "trackcraft-web",
 ];
 
 const ASSET_EXT: &[&str] = &[
@@ -74,6 +76,7 @@ fn main() -> ExitCode {
         Some("assets") => assets(),
         Some("layers") => layers(),
         Some("wasm") => wasm(),
+        Some("web") => web(),
         Some("parity") => parity(rest.contains(&"--check")),
         _ => {
             print!("{USAGE}");
@@ -174,6 +177,36 @@ fn wasm() -> Result<(), String> {
         args.push(c);
     }
     cargo(&args)
+}
+
+/// Builds the web client (`apps/trackcraft-web`) into `dist/web` with trunk, as Wordcraft does,
+/// and copies the sample host configs from `packaging/web`. Without trunk it says how to get it
+/// and succeeds, so machines without the web toolchain aren't blocked.
+fn web() -> Result<(), String> {
+    let has_trunk = Command::new("trunk").arg("--version").output().is_ok_and(|o| o.status.success());
+    if !has_trunk {
+        println!("web: skipped: trunk is not installed.");
+        println!("  install: cargo install trunk --locked   (or: brew install trunk)");
+        println!("  and:     rustup target add wasm32-unknown-unknown");
+        println!("  then:    cargo xtask web   (output in dist/web; see docs/web.md)");
+        return Ok(());
+    }
+    let app = root().join("apps/trackcraft-web");
+    let status = Command::new("trunk").current_dir(&app).args(["build", "--release"]).status().map_err(|e| format!("trunk: {e}"))?;
+    if !status.success() {
+        return Err("trunk build --release failed".into());
+    }
+    let dist = root().join("dist/web");
+    let index = std::fs::read_to_string(dist.join("index.html")).map_err(|e| format!("dist/web/index.html: {e}"))?;
+    // Relative URLs only (`public_url = "./"`), so the site works under any prefix.
+    if index.contains("src=\"/") || index.contains("href=\"/") {
+        return Err("dist/web/index.html has root-absolute URLs; it would break when served from a sub-path".into());
+    }
+    for f in ["_headers", ".htaccess"] {
+        std::fs::copy(root().join("packaging/web").join(f), dist.join(f)).map_err(|e| format!("packaging/web/{f}: {e}"))?;
+    }
+    println!("web: built dist/web (serve it: trackcraft-server serve --web dist/web)");
+    Ok(())
 }
 
 fn is_asset(path: &str) -> bool {

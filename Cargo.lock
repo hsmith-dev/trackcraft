@@ -4015,6 +4015,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "trackcraft-web"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "js-sys",
+ "log",
+ "serde_json",
+ "trackcraft-engine",
+ "trackcraft-store",
+ "trackcraft-ui-egui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "tree_magic_mini"
 version = "3.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

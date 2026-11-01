@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod config;
+pub mod static_files;
 pub mod workspaces;
 
 use std::future::Future;
@@ -62,6 +63,9 @@ pub struct Options {
     pub log_requests: bool,
     /// Public origin for `self` links; `None` = from the `Host` header.
     pub base_url: Option<String>,
+    /// A static directory (the web client's `dist/web`) served for paths no API route matches
+    /// (`serve --web DIR`, `static_files`); `None` serves nothing but the API.
+    pub web: Option<PathBuf>,
 }
 
 impl Default for Options {
@@ -72,6 +76,7 @@ impl Default for Options {
             save_debounce: Duration::from_millis(500),
             log_requests: true,
             base_url: None,
+            web: None,
         }
     }
 }
@@ -167,7 +172,7 @@ impl Server {
 /// The mountable router for a server: `trackcraft_api::router` with the server's limits.
 pub fn router(server: &Server) -> Router {
     let o = &server.options;
-    trackcraft_api::router(server.api_state())
+    static_files::with_web(trackcraft_api::router(server.api_state()), o.web.as_deref())
         .layer(DefaultBodyLimit::max(o.max_body_bytes))
         .layer(from_fn_with_state(o.timeout, timeout))
         .layer(from_fn_with_state(o.log_requests, log))
