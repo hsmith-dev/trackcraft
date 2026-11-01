@@ -139,6 +139,9 @@ impl WebShell {
                     Err(e) => self.app.notify(format!("Couldn't save: {e}")),
                 }
             }
+            // `workspace.import` reads a file path, which the browser doesn't have. Importing in
+            // the browser needs an import-from-bytes engine entry point (docs/gaps.md).
+            FileRequest::Import(_) => self.app.notify("Import works in the desktop app for now; open the imported .track file here."),
         }
     }
 
