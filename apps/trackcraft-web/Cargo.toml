@@ -1,0 +1,37 @@
+[package]
+name = "trackcraft-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+description = "TrackCraft in the browser (eframe web runner, WebGPU with WebGL2 fallback)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "trackcraft-web"
+path = "src/main.rs"
+
+[dependencies]
+trackcraft-engine.workspace = true
+trackcraft-store.workspace = true
+trackcraft-ui-egui.workspace = true
+egui.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# `wgpu` pulls egui-wgpu's defaults: WebGPU plus the WebGL2 fallback. `persistence` keeps egui's
+# memory (sidebar stars, theme) in the browser's localStorage.
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+log.workspace = true
+web-sys = { workspace = true, features = [
+    "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlAnchorElement", "HtmlInputElement",
+    "Blob", "BlobPropertyBag", "Url", "Location", "Event", "EventTarget", "BeforeUnloadEvent", "FileList", "File",
+    "Storage", "UrlSearchParams", "Request", "RequestInit", "RequestCredentials", "Response",
+] }

@@ -1,0 +1,11 @@
+# Build with: trunk build --release   (from apps/trackcraft-web), or `cargo xtask web` from the root.
+# Output in dist/web; serve it with `trackcraft-server serve --web dist/web` or any static host.
+[build]
+target = "index.html"
+dist = "../../dist/web"
+public_url = "./"
+filehash = true
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8772

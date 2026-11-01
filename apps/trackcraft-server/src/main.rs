@@ -11,8 +11,9 @@ const USAGE: &str = "\
 usage: trackcraft-server <command> [options]
 
 commands:
-  serve [--data DIR] [--listen ADDR] [--base-url URL] [--timeout SECS] [--max-body BYTES] [--quiet]
-        serve every DIR/NAME.track (default DIR ./data, ADDR 127.0.0.1:8080)
+  serve [--data DIR] [--listen ADDR] [--base-url URL] [--timeout SECS] [--max-body BYTES] [--quiet] [--web DIST]
+        serve every DIR/NAME.track (default DIR ./data, ADDR 127.0.0.1:8080);
+        --web also serves the web client built in DIST (cargo xtask web: dist/web)
   token create --user ID [--email EMAIL] [--label TEXT] [--data DIR]
         mint an API token for a workspace user (printed once; only its hash is stored)
   token list [--data DIR]
@@ -136,6 +137,9 @@ fn serve(a: &Args) -> Result<(), String> {
     }
     opts.base_url = a.get("--base-url").map(str::to_string);
     opts.log_requests = !a.has("--quiet");
+    if let Some(web) = a.get("--web") {
+        opts.web = Some(trackcraft_server::static_files::StaticDir::new(std::path::Path::new(web)).map_err(|e| e.to_string())?.root().to_path_buf());
+    }
     let listen = a.get("--listen").unwrap_or("127.0.0.1:8080").to_string();
     let data = a.data();
     let server = Server::open(&data, opts).map_err(|e| e.to_string())?;
