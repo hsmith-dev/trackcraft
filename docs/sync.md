@@ -1,6 +1,6 @@
 # Live sync
 
-> **Status:** 2026-10-31 · M4.2 — desktop clients edit a server workspace live.
+> **Status:** 2026-10-31 · M4.6 — desktop and browser clients edit a server workspace live.
 
 Several desktop clients (and every REST/MCP caller) edit one server-hosted workspace and see each
 other's changes as they happen. The server is authoritative; clients apply their own commands
@@ -111,8 +111,45 @@ reached at start) and returns the `Session` the UI edits plus the `Remote` that 
   the store are later work). The client holds two copies of the workspace in memory.
 - Permissions are workspace membership only (as for the REST API); a user removed while
   streaming keeps the open stream until it reconnects.
-- Browsers' `EventSource` can't set `Authorization`: the web client needs a cookie or a
-  short-lived stream token (later work, with the web client).
+- Browsers' `EventSource` can't set `Authorization`: the web client uses a stream ticket (below).
+
+## Browser transport (M4.6, `apps/trackcraft-web`)
+
+The web client runs the same model — confirmed copy + pending queue + replay over
+`Session::apply_remote` / `set_after_command` — in one browser thread:
+
+- **State machine** (`src/sync.rs`, `Sync::step`): a port of `Remote::pump` plus the decisions the
+  desktop's threads made (command order and retries, backoff, stream reconnects, resync). It takes
+  what the browser reported (`Net`: ticket, snapshot, stream event, stream error, POST answer,
+  online/offline) and the time, and returns `Action`s (fetch snapshot, fetch ticket, open/close the
+  stream, POST a command) plus toasts and a retry timer. Tested natively with a fake transport over
+  a real journaled `Session` (`src/sync/tests.rs`: convergence, server order wins, offline queue
+  replayed in order, lost answers deduplicated, refused commands, 401, gaps, unreadable entries,
+  epoch change with `appliedSeq`, divergence). The rebase logic is duplicated from
+  `crates/sync-client` for now (TODO: extract a transport-agnostic core both drive).
+- **Driver** (`src/sync_web.rs`): `fetch` (`Authorization: Bearer`, same-origin, `no-store`,
+  aborted after 30 s / 120 s for snapshots, sizes capped) for `GET api/sync/snapshot?client=ID`,
+  `POST api/sync/ticket` and `POST api/command`; `EventSource` for `GET api/sync/events`; the
+  window's `online`/`offline` events. Paths are relative to the page (`w/NAME/api/…` for a named
+  workspace). JS callbacks only queue a `Net` and request a repaint; the frame steps the machine.
+  `EventSource`'s own auto-reconnect is not used (its URL holds a spent ticket): the first error
+  closes the stream and the machine reconnects with a fresh ticket and `since` = the confirmed
+  revision. Events from a closed stream are dropped by generation.
+- **Auth: stream tickets** (`crates/server/src/ticket.rs`). The API authenticates by header only,
+  and `EventSource` can't send one. Putting the long-lived token in the URL would leak it into
+  access logs, proxies and history, so instead: `POST {base}/api/sync/ticket` with the bearer
+  token answers `{"ticket": "tcs_…", "expiresIn": 60}`, and the page opens
+  `{base}/api/sync/events?…&ticket=tcs_…` at once. A ticket is 128 random bits, expires after
+  60 s, is **single-use**, works **only on the events path** of the **workspace base it was minted
+  for**, and acts as the minting user (membership is checked when the stream opens, as for any
+  route). Misuse (wrong base, second use, late) spends it. A fresh ticket is never accepted as a
+  bearer token; the server's request log never prints query strings, and a ticket that shows up in
+  someone else's log is already spent. At most 10 000 outstanding (503 above). Wiring: the server
+  wraps its identity provider (`TicketIdentity`) and layers a `redeem` middleware in front of the
+  unchanged API router; nothing else in `trackcraft-api` changed. Cookies were the alternative;
+  they'd need a login endpoint, CSRF protection for the command routes and a session store, so
+  tickets are the smaller change. Like any open stream, one opened with a ticket outlives a token
+  revoked meanwhile until it reconnects.
 
 ## Sharing with Chatcraft (suite server)
 
