@@ -24,7 +24,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::json;
 use tokio::sync::watch;
-use trackcraft_engine::sync::SinceError;
+use trackcraft_engine::authz::Delivery;
+use trackcraft_engine::sync::{SinceError, skip_entry};
 use trackcraft_sync_proto as proto;
 
 use crate::ApiState;
@@ -118,6 +119,8 @@ fn resync_event(epoch: &str, rev: u64, reason: &str) -> Event {
 
 struct Stream {
     hosted: Arc<Hosted>,
+    /// Entries are filtered for this user (`docs/permissions.md`).
+    user: String,
     rx: watch::Receiver<u64>,
     since: u64,
     queue: VecDeque<Event>,
@@ -149,7 +152,7 @@ async fn events(cx: Ctx, q: Q) -> Result<Response, ApiError> {
     } else {
         false
     };
-    let st = Stream { hosted: Arc::clone(&cx.hosted), rx, since, queue, done };
+    let st = Stream { hosted: Arc::clone(&cx.hosted), user: cx.user.clone(), rx, since, queue, done };
     let stream = futures_util::stream::unfold(st, step);
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(KEEP_ALIVE)).into_response())
 }
@@ -162,10 +165,20 @@ async fn step(mut st: Stream) -> Option<(Result<Event, Infallible>, Stream)> {
         if st.done {
             return None;
         }
-        let (h, since) = (Arc::clone(&st.hosted), st.since);
+        let (h, since, user) = (Arc::clone(&st.hosted), st.since, st.user.clone());
+        // What this user may be told about each entry is judged under the same lock.
         let read = tokio::task::spawn_blocking(move || {
             let s = h.lock();
-            (s.journal_since(since, BATCH), s.sync_rev())
+            let entries = s.journal_since_meta(since, BATCH).map(|v| {
+                v.into_iter()
+                    .map(|(e, m)| match s.delivery(&user, &m.scope) {
+                        Delivery::Send => (e, false),
+                        Delivery::Skip => (skip_entry(&e, &m), false),
+                        Delivery::Resync => (e, true),
+                    })
+                    .collect::<Vec<_>>()
+            });
+            (entries, s.sync_rev())
         })
         .await;
         match read {
@@ -183,8 +196,15 @@ async fn step(mut st: Stream) -> Option<(Result<Event, Infallible>, Stream)> {
                     return None;
                 }
             }
-            Ok((Ok(entries), _)) => {
-                for e in entries {
+            Ok((Ok(entries), rev)) => {
+                for (e, resync) in entries {
+                    if resync {
+                        // Access changed, or the entry mixes things this user can and can't see:
+                        // their copy can't follow by replay. A snapshot (filtered for them) can.
+                        st.queue.push_back(resync_event(st.hosted.epoch(), rev, "what you can see changed"));
+                        st.done = true;
+                        break;
+                    }
                     st.since = e.rev;
                     st.queue.push_back(json_event(proto::EVENT_ENTRY, &e).id(e.rev.to_string()));
                 }

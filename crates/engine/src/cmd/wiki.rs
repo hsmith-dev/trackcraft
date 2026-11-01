@@ -53,6 +53,9 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 fn space_create(s: &mut Session, p: &Value) -> CmdResult {
     let (now, me) = (s.now(), s.user.clone());
     let key = s.ws.create_space(params::str(p, "key")?, params::str(p, "name")?, &me, now).map_err(err)?;
+    if s.ws.workspace_role(&me).is_some_and(|r| r != trackcraft_model::WorkspaceRole::Admin) {
+        s.ws.set_space_role(key.as_str(), &me, Some(trackcraft_model::SpaceRole::Admin)).map_err(err)?;
+    }
     let sp = s.ws.space(key.as_str()).map_err(err)?;
     Ok(view::space(sp))
 }

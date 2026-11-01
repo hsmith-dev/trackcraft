@@ -2,6 +2,7 @@
 //! ([`Q`]), JSON bodies ([`Body`]) — every rejection in the surface's error shape — and [`Tx`],
 //! the locked session a handler runs commands on.
 
+use std::cell::OnceCell;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -137,7 +138,7 @@ impl Ctx {
                 );
             }
             let (prev_user, rev, sync_rev) = (std::mem::replace(&mut s.user, user.clone()), s.revision(), s.sync_rev());
-            let mut tx = Tx { s: &mut s, flavor, events: Vec::new(), before: None };
+            let mut tx = Tx { s: &mut s, flavor, events: Vec::new(), before: None, view: OnceCell::new() };
             let out = f(&mut tx);
             let (events, before) = (std::mem::take(&mut tx.events), tx.before.take());
             let events = match (&out, before) {
@@ -175,11 +176,23 @@ pub struct Tx<'a> {
     pub flavor: Flavor,
     events: Vec<(String, Value, Value)>,
     before: Option<Workspace>,
+    /// The caller's view of the workspace (`Workspace::view_for`), made on first use after each
+    /// change; `Some(None)` = they can see everything.
+    view: OnceCell<Option<Workspace>>,
 }
 
 impl Tx<'_> {
+    /// The workspace as the caller may see it: with permissions on (servers), projects, spaces
+    /// and pages they can't browse are not in it, so every handler that reads through here
+    /// answers 404 for them, and lists leave them out.
     pub fn ws(&self) -> &Workspace {
-        &self.s.ws
+        if !self.s.is_enforcing() {
+            return &self.s.ws;
+        }
+        match self.view.get_or_init(|| self.s.ws.view_for(&self.s.user)) {
+            Some(v) => v,
+            None => &self.s.ws,
+        }
     }
 
     pub fn user(&self) -> &str {
@@ -208,7 +221,11 @@ impl Tx<'_> {
         if BLOCKED.contains(&id) {
             return Err(ApiError::new(self.flavor, StatusCode::FORBIDDEN, format!("{id} is not available over the server API")));
         }
-        let r = self.s.run(id, &params).map_err(|e| ApiError::from_command(self.flavor, e))?;
+        let r = self.s.run(id, &params);
+        if trackcraft_engine::command(id).is_some_and(|c| c.mutates) {
+            self.view = OnceCell::new();
+        }
+        let r = r.map_err(|e| ApiError::from_command(self.flavor, e))?;
         if trackcraft_engine::command(id).is_some_and(|c| c.mutates) {
             self.events.push((id.to_string(), params, r.clone()));
         }

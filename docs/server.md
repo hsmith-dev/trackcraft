@@ -1,6 +1,6 @@
 # The TrackCraft server
 
-> **Status:** 2026-10-31 · M4.2 — live sync (journal, SSE events, snapshot; [`sync.md`](sync.md)) on the M4.1 server and REST API subset.
+> **Status:** 2026-10-31 · M4.3 — permissions on every route ([`permissions.md`](permissions.md)); M4.2 live sync (journal, SSE events, snapshot; [`sync.md`](sync.md)) on the M4.1 server and REST API subset.
 
 `trackcraft-server` hosts TrackCraft workspaces for a team and answers a subset of the Jira Cloud
 REST v3, Jira Software Agile 1.0 and Confluence Cloud REST v2 APIs (see
@@ -37,6 +37,7 @@ curl -u riley@example.com:$TOKEN http://127.0.0.1:8080/rest/api/3/myself
 | `token create --user ID [--email E] [--label L]` | Mints a token for a workspace user id. |
 | `token list`, `token revoke TOKEN_ID` | Lists token ids/users (never the tokens), revokes one. |
 | `workspace create NAME [--sample] [--user ID]`, `workspace list` | Creates `NAME.track` (never overwrites); names are `a-z 0-9 - _`, at most 64. |
+| `user role --user ID --role admin\|member\|viewer [--workspace NAME]` | Sets a workspace role in the file (refuses to demote the last admin). Run it while the server is stopped — a running server would save over it; online, admins run `access.setWorkspaceRole`. |
 
 Workspaces are loaded at start-up; restart to pick up a workspace file added while running (token
 changes are picked up live).
@@ -78,8 +79,13 @@ data/
   get 403. Every command runs **as that user** (reporter, comment author, history author,
   `currentUser()` in JQL): the session's acting user is set for the locked call and restored
   afterwards, so concurrent requests from different users never see each other's identity.
-- There are no per-project permissions yet: any member may do anything a command allows (the
-  engine's own rules still apply, e.g. only a comment's author may edit it).
+- **Permissions** ([`permissions.md`](permissions.md)): every hosted session enforces
+  workspace, project and space roles and page restrictions (`Session::set_enforce`). Things the
+  caller can't browse are **404** on every surface, exactly as if they didn't exist; things they
+  can see but not change are **403** (`permission denied: …`). Lists, searches, boards, page
+  trees and `/api/workspace` counts leave hidden things out: handlers read the workspace through
+  `Tx::ws`, the caller's filtered view. The first token user of a workspace created with
+  `--user` is its admin; `--sample` makes riley the admin and sam and jo members.
 - Over the native endpoint the server refuses commands that act on the server rather than the
   workspace: `file.open`, `file.save`, `workspace.new`, `edit.undo`, `edit.redo`, `user.switch`
   (403), and `workspace.import` (it reads a path on the host) — the engine's `LOCAL_ONLY` list.
@@ -145,6 +151,6 @@ axum::serve(listener, app).await?;
 
 ## Not yet
 
-TLS (use a reverse proxy), per-project permissions, rate limiting, WebSocket push, per-user
+TLS (use a reverse proxy), groups and configurable permission schemes, issue-level security, rate limiting, WebSocket push, per-user
 undo through the server, a persisted journal (revisions restart with the process), attachments, OAuth, and the Jira/Confluence endpoints not listed in
 [`api-compatibility.md`](api-compatibility.md).

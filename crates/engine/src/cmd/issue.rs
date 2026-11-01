@@ -59,6 +59,11 @@ fn project_create(s: &mut Session, p: &Value) -> CmdResult {
     };
     let lead = params::opt_str(p, "lead")?;
     let key = s.ws.create_project(params::str(p, "key")?, params::str(p, "name")?, kind, lead).map_err(err)?;
+    // The creator administers what they made (workspace admins already administer everything).
+    let me = s.user.clone();
+    if s.ws.workspace_role(&me).is_some_and(|r| r != trackcraft_model::WorkspaceRole::Admin) {
+        s.ws.set_project_role(key.as_str(), &me, Some(trackcraft_model::ProjectRole::Administrator)).map_err(err)?;
+    }
     Ok(json!({"key": key.as_str()}))
 }
 

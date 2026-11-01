@@ -32,7 +32,7 @@ fn catalog_ids_exist_and_floor_holds() {
     }
     let (done, total) = catalog::coverage();
     // The floor only rises: raise it when you implement catalog rows.
-    assert!(done >= 63, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 67, "catalog coverage fell to {done}/{total}");
 }
 
 /// Every command, fed junk, returns an error or a value — never a panic, and a failed command
@@ -77,6 +77,11 @@ fn hostile_params_never_panic() {
         json!({"name": "n".repeat(100_000), "id": "riley", "email": format!("{}@x.org", "a".repeat(100_000))}),
         json!({"id": "riley", "email": "not an email", "name": []}),
         json!({"id": ["riley"], "email": null, "name": null}),
+        // M4.3 access.* / page.restrict params.
+        json!({"user": "sam", "role": "viewer", "project": "LUME", "space": "ENG", "access": "private"}),
+        json!({"user": "riley", "role": "member"}),
+        json!({"id": 1, "view": ["ghost", 3], "edit": "riley"}),
+        json!({"command": "issue.delete", "params": {"key": "LUME-1"}, "user": "sam"}),
         // M5.1 workspace.import params.
         json!({"kind": "jiraCsv", "path": "/nonexistent/trackcraft/export.csv"}),
         json!({"kind": "confluence", "path": "", "space": "bad key"}),

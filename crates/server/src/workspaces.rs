@@ -73,6 +73,27 @@ pub fn create(data: &Path, name: &str, sample: bool, user: Option<&str>) -> Resu
     Ok(path)
 }
 
+/// Sets a user's workspace role in `data/NAME.track` (`trackcraft-server user role`). Without a
+/// name, the only workspace in `data`. Edits the file, so run it while the server is stopped (a
+/// running server would save over it); online, admins use `access.setWorkspaceRole`. Refuses to
+/// demote the last admin, like the command.
+pub fn set_role(data: &Path, name: Option<&str>, user: &str, role: &str) -> Result<PathBuf, ServerError> {
+    let role = trackcraft_engine::model::WorkspaceRole::parse(role).ok_or_else(|| ServerError::Config("--role is admin, member or viewer".into()))?;
+    let path = match name {
+        Some(n) if valid_name(n) => workspace_path(data, n),
+        Some(_) => return Err(ServerError::Config(format!("workspace names are 1–{MAX_NAME} characters of a-z, 0-9, - and _"))),
+        None => match list(data)?.as_slice() {
+            [(_, p)] => p.clone(),
+            [] => return Err(ServerError::Config(format!("no workspaces in {}", data.display()))),
+            _ => return Err(ServerError::Config("several workspaces: pass --workspace NAME".into())),
+        },
+    };
+    let mut ws = trackcraft_store::load(&path).map_err(|e| ServerError::Store(e.to_string()))?;
+    ws.set_workspace_role(user, role).map_err(|e| ServerError::Config(e.to_string()))?;
+    trackcraft_store::save(&ws, &path).map_err(|e| ServerError::Store(e.to_string()))?;
+    Ok(path)
+}
+
 /// Saves every workspace whose revision moved since its last save. Returns how many were written.
 /// The session is locked only to copy the workspace; the write happens after.
 pub fn flush(hub: &Hub) -> Result<usize, ServerError> {

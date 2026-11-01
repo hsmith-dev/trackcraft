@@ -6,6 +6,7 @@
 //! control channel, REST API and MCP server all call [`Session::run`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod authz;
 pub mod catalog;
 pub mod cmd;
 mod json;
@@ -130,6 +131,9 @@ pub struct Session {
     remote: bool,
     after: Option<AfterCommand>,
     sync: sync::SyncState,
+    /// Server mode: local commands are checked against the acting user's permissions and
+    /// queries see only what they may browse ([`Session::set_enforce`]).
+    enforce: bool,
 }
 
 pub fn system_now() -> Timestamp {
@@ -153,6 +157,7 @@ impl Session {
             remote: false,
             after: None,
             sync: sync::SyncState::default(),
+            enforce: false,
         }
     }
 
@@ -238,18 +243,28 @@ impl Session {
         if let Some(why) = (spec.enabled)(self) {
             return Err(format!("{} is unavailable: {why}", spec.id));
         }
+        // Permissions (servers): mutations are checked, queries run on the actor's view.
+        let enforced = self.enforce && mode == Mode::Local && !LOCAL_ONLY.contains(&spec.id);
+        if enforced && spec.mutates {
+            self.authorize(&self.user, spec.id, params).map_err(|d| d.to_string())?;
+        }
+        let full = if enforced && !spec.mutates { self.ws.view_for(&self.user).map(|v| std::mem::replace(&mut self.ws, v)) } else { None };
         // One command, one timestamp (a replay has already pinned the entry's).
         let pinned_here = self.pinned.is_none();
         let at = self.now();
         self.pinned = Some(at);
         let ids_before = sync::ids_next(&self.ws);
         let before = spec.mutates.then(|| self.ws.clone());
+        let scope = (mode == Mode::Local && spec.mutates && self.sync.journaling()).then(|| authz::scope(&self.ws, spec.id, params));
         // Every history entry one command records shares one change id.
         if spec.mutates {
             self.ws.begin_batch();
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (spec.run)(self, params)));
         self.ws.end_batch();
+        if let Some(full) = full {
+            self.ws = full;
+        }
         if pinned_here {
             self.pinned = None;
         }
@@ -272,7 +287,7 @@ impl Session {
                     self.dirty = true;
                     self.bump();
                     if mode == Mode::Local {
-                        self.record(spec.id, params, at, ids_before);
+                        self.record(spec.id, params, at, ids_before, scope.unwrap_or_default());
                     }
                 }
                 Ok(_) => {}
@@ -283,9 +298,11 @@ impl Session {
     }
 
     /// After a local change: the journal entry (servers) and the observer (sync clients).
-    fn record(&mut self, id: &str, params: &Value, at: Timestamp, ids_before: u64) {
+    fn record(&mut self, id: &str, params: &Value, at: Timestamp, ids_before: u64, scope: authz::Scope) {
         let actor = self.user.clone();
-        self.sync.record(id, params, &actor, at, ids_before);
+        let ids_after = sync::ids_next(&self.ws);
+        let inbox_after = self.ws.inbox.next_id;
+        self.sync.record(id, params, &actor, at, ids_before, sync::Meta { scope, ids_after, inbox_after });
         if let Some(f) = self.after.as_mut() {
             f(&Executed { command: id.to_string(), params: params.clone(), actor, at, ids_before, revision: self.revision });
         }
@@ -326,6 +343,8 @@ impl Session {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_access;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]

@@ -6,6 +6,7 @@
 //! and permissions. No method panics on bad input — each returns a [`ModelError`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod access;
 mod agile;
 mod import;
 mod notify;
@@ -19,6 +20,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use trackcraft_core::{Id, IdGen, IssueKey, ProjectKey};
 
+pub use access::{Access, AccessLevel, Grants, MAX_RESTRICTION_USERS, ProjectRole, Restriction, SpaceRole, WorkspaceRole};
 pub use agile::{Anchor, Completion, MAX_GOAL, MAX_MOVE, MAX_SPRINTS, MoveOpenTo, Sprint, SprintEdit, SprintState};
 pub use import::MAX_IMPORTED_KINDS;
 pub use notify::{Inbox, MAX_NOTIFICATIONS, MAX_WATCHES, NOTIFY_EXCERPT, Notification, NotifyKind, Target, Watches};
@@ -109,6 +111,9 @@ pub struct Workspace {
     #[serde(default, skip_serializing_if = "Inbox::is_empty")]
     pub inbox: Inbox,
     pub ids: IdGen,
+    /// Roles, access levels and page restrictions (M4.3; older files load with none: everyone is an admin).
+    #[serde(default, skip_serializing_if = "Access::is_empty")]
+    pub access: Access,
     /// Transient (never saved): whether history entries are being grouped into one change.
     #[serde(skip)]
     batch: Batch,
@@ -143,6 +148,7 @@ impl Workspace {
             templates: BTreeMap::new(),
             inbox: Inbox::default(),
             ids: IdGen::default(),
+            access: Access::default(),
             batch: Batch::Off,
         }
     }
