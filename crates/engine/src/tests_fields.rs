@@ -63,7 +63,7 @@ fn catalog_floor_with_fields() {
         assert!(catalog::FEATURES.iter().any(|f| f.name == row && !f.command.is_empty()), "{row} not mapped");
     }
     let (done, total) = catalog::coverage();
-    assert!(done >= 70, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 78, "catalog coverage fell to {done}/{total}");
 }
 
 #[test]

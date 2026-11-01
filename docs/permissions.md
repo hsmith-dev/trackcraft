@@ -57,6 +57,7 @@ a workspace admin already).
 | Assign, rank, plan sprints, delete issues | | ✓ | ✓ |
 | Delete other people's comments | | | ✓ |
 | Change project roles and access level | | | ✓ |
+| Custom fields, components, versions (define, release) — M2.4 | | | ✓ |
 | View the space and its pages | ✓ | ✓ | ✓ |
 | Comment on pages | ✓ | ✓ | ✓ |
 | Create, edit, move, copy, delete, label, restore pages | | ✓ | ✓ |

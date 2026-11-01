@@ -342,6 +342,20 @@ mod tests {
         assert!(parse("created >= -7d").is_ok());
     }
 
+    /// M2.4: custom field clause names reach the record unchanged.
+    #[test]
+    fn parses_custom_field_names() {
+        let q = parse(r#"cf[10001] >= 3 AND "Customer" = Acme AND fixVersion IN unreleasedVersions() ORDER BY cf[10001] DESC, "Customer""#).unwrap();
+        assert_eq!(q.order, vec![("cf[10001]".into(), Dir::Desc), ("Customer".into(), Dir::Asc)]);
+        let Some(Expr::And(lhs, rhs)) = q.filter else { panic!("{:?}", q.filter) };
+        assert!(
+            matches!(*rhs, Expr::Clause { ref field, op: Op::In, value: Operand::List(ref l) } if field == "fixVersion" && matches!(l.first(), Some(Operand::Func(f, _)) if f == "unreleasedVersions"))
+        );
+        let Expr::And(a, b) = *lhs else { panic!() };
+        assert!(matches!(*a, Expr::Clause { ref field, op: Op::Ge, .. } if field == "cf[10001]"));
+        assert!(matches!(*b, Expr::Clause { ref field, op: Op::Eq, .. } if field == "Customer"));
+    }
+
     #[test]
     fn rejects_bad_queries_without_panicking() {
         for bad in ["project", "project =", "a = 1 AND", "(a = 1", "a IS 3", "a = (1,2)", "a ! b", "\"open", "a IN (1,", "a = 1 b", "f(", "a = f(1"] {

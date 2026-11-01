@@ -72,9 +72,19 @@ issue links) are all read.
 | `Custom field (Story Points)` / `Custom field (Story point estimate)` | story points |
 | `Comment` (repeated) | comments, each `date;author;body` (the body may contain `;`) |
 | `Inward issue link (Type)` / `Outward issue link (Type)` | links (see links) |
+| `Component/s` (repeated) | components, created by name in the project (M2.4) |
+| `Fix Version/s`, `Affects Version/s` (repeated) | fix and affects versions, created by name (unreleased) |
+| `Custom field (Name)` (repeated for several values) | a custom field `Name` of the project (an existing one keeps its type; see custom fields) |
 
-Not imported yet: components, versions (fix/affects), due dates, time tracking, watchers,
-votes, attachments, other custom fields, resolution names (only resolved/unresolved),
+**Custom fields** (M2.4): the type of a new field is guessed from every value in the file —
+all numbers → number; all dates → date; several values on one issue (a repeated column) →
+multi-select over the values seen (at most 500); otherwise text. `Rank`, `Sprint`, `Epic …` and
+story-point columns are not custom fields here. A name that is a system field's (`Status`) is a
+warning and the column is skipped. Values are set as the issue's first values (no history);
+one that doesn't fit its field is a warning.
+
+Not imported yet: due dates, time tracking, watchers, votes, attachments, version release
+dates and states, resolution names (only resolved/unresolved),
 issue security, change history (the import creates a `created` entry; comments and links add
 their own).
 
@@ -87,7 +97,8 @@ objects, or a single issue. Per issue: `key`, `id`, `fields.summary`, `fields.is
 `fields.assignee` / `fields.reporter` (`accountId`, `displayName`, `emailAddress`),
 `fields.created` / `updated` / `resolutiondate`, `fields.description` (ADF; a v2 string is read
 as wiki markup), `fields.labels`, `fields.parent.key`, `fields.comment.comments[]` (`author`,
-`created`, `body`), `fields.issuelinks[]` (`type.name` with `outwardIssue` / `inwardIssue`).
+`created`, `body`), `fields.issuelinks[]` (`type.name` with `outwardIssue` / `inwardIssue`),
+`fields.components[].name`, `fields.fixVersions[].name`, `fields.versions[].name` (M2.4).
 
 Custom fields: when the page has `names` (`expand=names`), the fields named "Story Points" /
 "Story point estimate" and "Sprint" are read. Without `names`, the first `customfield_*` holding

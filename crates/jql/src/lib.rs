@@ -7,14 +7,16 @@
 //! Supported today: `AND`/`OR`/`NOT`, parentheses, `= != > >= < <= ~ !~ IN NOT IN IS IS NOT`,
 //! `EMPTY`/`NULL`, quoted field names, `ORDER BY f [ASC|DESC], …`, the functions
 //! `currentUser()`, `now()`, `startOfDay()`, `endOfDay()`, and relative dates (`-7d`, `2w`, `-4h`).
-//! List functions that need the data (`sprint IN openSprints()`, `closedSprints()`) are answered
-//! by the record through [`Record::function`].
+//! List functions that need the data (`sprint IN openSprints()`, `closedSprints()`,
+//! `fixVersion IN unreleasedVersions()`, `releasedVersions()`) are answered by the record
+//! through [`Record::function`]. Custom fields are fields like any other: `cf[10001]` lexes as one
+//! word and `"Customer"` as a quoted name; the record resolves both (M2.4).
 //!
 //! History operators (from the public JQL reference): `WAS`, `WAS NOT`, `WAS IN (…)`,
 //! `WAS NOT IN (…)` and `CHANGED`, with the predicates `AFTER`, `BEFORE`, `ON`, `DURING (a, b)`,
 //! `BY user|(users…)`, and for `CHANGED` also `FROM value` and `TO value`. A record opts in per
 //! field through [`Record::history`]; fields without history give a clear error.
-//! Not yet: history functions, `cf[…]` custom fields (tracked in `docs/gaps.md`).
+//! Not yet: history functions (tracked in `docs/gaps.md`).
 //!
 //! Hostile input: query length, nesting and list sizes are capped; nothing here panics.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]

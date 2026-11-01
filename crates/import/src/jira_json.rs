@@ -152,6 +152,19 @@ fn read(v: &Value, report: &mut ImportReport) -> Result<Vec<RawIssue>> {
             story_points: field_named(&["Story Points", "Story point estimate"]).and_then(Value::as_f64),
             ..RawIssue::default()
         };
+        // M2.4: components and versions by name.
+        let named = |k: &str| -> Vec<String> {
+            f.get(k)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|x| x.get("name").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        };
+        r.components = named("components");
+        r.fix_versions = named("fixVersions");
+        r.affects_versions = named("versions");
         r.sprints = field_named(&["Sprint"])
             .and_then(sprint_list)
             .or_else(|| f.as_object().and_then(|o| o.iter().filter(|(k, _)| k.starts_with("customfield_")).find_map(|(_, v)| sprint_list(v))))

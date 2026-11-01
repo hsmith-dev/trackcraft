@@ -18,6 +18,7 @@
 pub mod agile;
 pub mod ctx;
 pub mod error;
+pub mod fields; // M2.4
 pub mod host;
 pub mod ids;
 pub mod jira;
@@ -72,3 +73,6 @@ async fn not_allowed(uri: Uri) -> Response {
 pub fn router(state: ApiState) -> Router {
     Router::new().merge(routes()).nest("/w/{ws}", routes()).fallback(not_found).method_not_allowed_fallback(not_allowed).with_state(state)
 }
+
+#[cfg(test)]
+mod tests_fields; // M2.4

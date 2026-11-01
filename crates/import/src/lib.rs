@@ -15,6 +15,7 @@
 
 mod confluence;
 mod csv;
+mod fields; // M2.4
 mod html;
 mod jira;
 mod jira_csv;

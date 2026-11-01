@@ -652,3 +652,38 @@ fn import_path_dispatch() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(r.to_json()["issues"], 5);
 }
+
+/// M2.4: components, versions and custom fields from the documented CSV columns.
+#[test]
+fn csv_components_versions_and_custom_fields() {
+    let csv = "Summary,Issue key,Component/s,Component/s,Fix Version/s,Affects Version/s,Custom field (Customer),Custom field (Cost),Custom field (Due),Custom field (Area),Custom field (Area),Custom field (Rank),Custom field (Status)\n\
+a,ACM-1,Docs,Core,1.0,0.9,Acme,12.5,2024-03-21,ui,api,0|i0001,x\n\
+b,ACM-2,Docs,,1.1,,\"Beta, Inc\",3,21/Mar/24,api,,0|i0002,y\n\
+c,ACM-3,,,,,,lots,,,,,\n";
+    let mut ws = Workspace::new("t");
+    let r = jira_csv(&mut ws, csv, actor()).unwrap();
+    assert_eq!(r.issues, 3, "{:#?}", r.warnings);
+    let pk = trackcraft_core::ProjectKey::parse("ACM").unwrap();
+    let d = ws.project_fields(&pk).unwrap().clone();
+    assert_eq!(d.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Docs", "Core"]);
+    assert_eq!(d.versions.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["1.0", "0.9", "1.1"]);
+    let kind = |n: &str| d.find_field(n).map(|f| f.kind.name());
+    assert_eq!(kind("Customer"), Some("text"));
+    assert_eq!(kind("Cost"), Some("text"), "one value is not a number");
+    assert_eq!(kind("Due"), Some("date"));
+    assert_eq!(kind("Area"), Some("multiSelect"));
+    assert_eq!(kind("Rank"), None, "Jira internals are skipped");
+    assert_eq!(kind("Status"), None, "a system name can't be a custom field");
+    assert!(r.warnings.iter().any(|w| w.contains("Status")), "{:#?}", r.warnings);
+    let a = ws.issue("ACM-1").unwrap();
+    assert_eq!(a.components.len(), 2);
+    assert_eq!((a.fix_versions.len(), a.affects_versions.len()), (1, 1));
+    let get = |k: &str, f: &str| ws.issue(k).unwrap().custom.get(&d.find_field(f).unwrap().id).map(|v| v.display());
+    assert_eq!(get("ACM-1", "Customer").as_deref(), Some("Acme"));
+    assert_eq!(get("ACM-2", "Customer").as_deref(), Some("Beta, Inc"));
+    assert_eq!(get("ACM-2", "Due").as_deref(), Some("2024-03-21"));
+    assert_eq!(get("ACM-1", "Area").as_deref(), Some("ui, api"));
+    assert_eq!(get("ACM-3", "Cost").as_deref(), Some("lots"));
+    // First values: no history beyond "created".
+    assert!(a.history.iter().all(|c| c.field == "created"));
+}
