@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use trackcraft_core::Id;
 use trackcraft_markup::Doc;
 
-pub(crate) use tree::{PageDrag, tree_drop};
+pub(crate) use tree::{PageDrag, space_drop, tree_drop};
 
 /// An open wiki dialog (UI-29, UI-30).
 #[derive(Debug)]

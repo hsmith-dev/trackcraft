@@ -199,14 +199,16 @@ impl Workspace {
         Ok(())
     }
 
-    /// Moves a page (and its subtree) under `new_parent` in the same space, as its last child.
+    /// Moves a page (and its subtree) under `new_parent`, as its last child.
     pub fn move_page(&mut self, id: Id, new_parent: Id) -> Result<()> {
         self.move_page_to(id, Some(new_parent), Placement::Last)
     }
 
     /// Moves a page (and its subtree) to `placement`: last child of `parent`, or just before /
     /// after a sibling (whose parent becomes the page's parent; `parent`, if also given, must
-    /// agree). Sibling positions are renumbered `0..n` in both the old and new parent.
+    /// agree). Sibling positions are renumbered `0..n` in both the old and new parent. The
+    /// parent may be in another space: the subtree moves there with its comments and history,
+    /// unless one of its titles is already taken in that space.
     pub fn move_page_to(&mut self, id: Id, parent: Option<Id>, placement: Placement) -> Result<()> {
         let sibling = match placement {
             Placement::Before(s) | Placement::After(s) => Some(s),
@@ -237,6 +239,15 @@ impl Workspace {
         order.insert(at.min(order.len()), id);
         if let Some(p) = self.pages.get_mut(&id) {
             p.parent = Some(new_parent);
+        }
+        // Across spaces the whole subtree goes along, with its comments and history.
+        let target_space = self.page(new_parent)?.space.clone();
+        if self.page(id)?.space != target_space {
+            for m in self.subtree(id) {
+                if let Some(p) = self.pages.get_mut(&m) {
+                    p.space = target_space.clone();
+                }
+            }
         }
         self.renumber(&order);
         if let Some(op) = old_parent
@@ -356,14 +367,31 @@ impl Workspace {
             return Err(ModelError::Invalid("a space's home page can't be moved".into()));
         }
         let target = self.page(new_parent)?;
-        if target.space != page.space {
-            return Err(ModelError::Invalid("pages can't move between spaces: copy the page instead (page.copy)".into()));
-        }
         if new_parent == id || self.ancestors(new_parent).contains(&id) {
             return Err(ModelError::Invalid("a page can't move under itself".into()));
         }
         if self.depth(new_parent).saturating_add(self.height(id)) >= MAX_PAGE_DEPTH {
             return Err(ModelError::Invalid(format!("pages can nest at most {MAX_PAGE_DEPTH} levels deep")));
+        }
+        if target.space != page.space {
+            self.check_move_titles(id, &target.space)?;
+        }
+        Ok(())
+    }
+
+    /// A subtree moving to `space` must not bring a title that a page there already has
+    /// (titles are unique per space): the error names the first clash.
+    fn check_move_titles(&self, id: Id, space: &ProjectKey) -> Result<()> {
+        let moving = self.subtree(id);
+        for m in &moving {
+            let Some(mp) = self.pages.get(m) else { continue };
+            if let Some(clash) = self.pages.values().find(|p| &p.space == space && !moving.contains(&p.id) && p.title.eq_ignore_ascii_case(&mp.title))
+            {
+                return Err(ModelError::Duplicate(format!(
+                    "a page titled '{}' in space {space} (page {}); rename '{}' before moving it there",
+                    clash.title, clash.id, mp.title
+                )));
+            }
         }
         Ok(())
     }

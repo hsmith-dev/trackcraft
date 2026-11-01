@@ -11,11 +11,13 @@ mod directory; // UI-8
 pub mod fixtures; // UI-6
 mod guard;
 pub mod icons;
+mod import_dialog; // fixes
 mod issues;
 mod keys;
 pub mod markup_view;
 mod order;
 mod palette;
+mod peek;
 mod route;
 mod settings; // UI-7
 mod shell;
@@ -24,7 +26,7 @@ mod status_bar; // UI-5
 pub mod theme;
 mod toast; // UI-5
 mod widgets;
-mod wiki;
+mod wiki; // fixes
 
 use serde_json::{Value, json};
 use trackcraft_core::{Id, IssueKey};
@@ -41,6 +43,20 @@ pub enum FileRequest {
     Save,
     SaveAs,
     New,
+    /// File › Import…: pick an export of this kind, then call [`TrackApp::import_file`] (fixes).
+    Import(ImportKind),
+}
+
+// fixes
+/// What File › Import… asked the host to pick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    /// A Jira CSV export (a file).
+    JiraCsv,
+    /// A Jira REST v3 search response (a .json file).
+    JiraJson,
+    /// A Confluence space export: an unpacked folder (`folder`), else a .zip or one page file.
+    Confluence { folder: bool },
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +231,10 @@ pub struct TrackApp {
     pub(crate) activity_tab: issues::ActivityTab, // UI-9
     /// Wiki comments, diff, templates, tree copy/move state (UI-27..30).
     pub(crate) wiki: wiki::WikiUi,
+    /// The issue in the peek pane (fixes).
+    pub(crate) peek: Option<IssueKey>, // fixes
+    /// File › Import… and its report (fixes).
+    pub(crate) import: import_dialog::ImportUi, // fixes
 }
 
 impl TrackApp {
@@ -266,7 +286,9 @@ impl TrackApp {
             settings: settings::SettingsUi::default(),
             // UI-9
             activity_tab: issues::ActivityTab::default(),
-            wiki: wiki::WikiUi::default(), // UI-27..30
+            wiki: wiki::WikiUi::default(),              // UI-27..30
+            peek: None,                                 // fixes
+            import: import_dialog::ImportUi::default(), // fixes
         }
     }
 
@@ -407,7 +429,8 @@ impl TrackApp {
             || self.sprint_dialog.is_some()
             || self.backlog.move_pick.is_some()
             || self.side.dialog.is_some() // UI-8
-            || self.wiki.dialog_open(); // UI-27..30
+            || self.wiki.dialog_open() // UI-27..30
+            || self.import.choose || self.import.report.is_some(); // fixes
         let modal = dialog || self.help || guarding;
         let gate = keys::Gate { typing, modal, help_only: self.help && !dialog && !guarding, guarding };
         let injected = std::mem::take(&mut self.injected);
@@ -455,6 +478,7 @@ impl TrackApp {
         for act in fired {
             keys::run(self, act);
         }
+        peek::logic(self, ctx, modal); // fixes
         // UI-5: toast timers.
         let now = ctx.input(|i| i.time);
         if self.toasts.tick(now) {
@@ -468,6 +492,7 @@ impl TrackApp {
         shell::top_bar(self, ui, &t);
         status_bar::show(self, ui, &t); // UI-5
         shell::sidebar(self, ui, &t);
+        peek::pane(self, ui, &t); // fixes
         egui::CentralPanel::default_margins().frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(24, 16))).show(ui, |ui| {
             match self.view.clone() {
                 View::Home => shell::home(self, ui, &t),
@@ -494,6 +519,7 @@ impl TrackApp {
         sprints::dialog(self, ui.ctx(), &t); // UI-12
         directory::dialog(self, ui.ctx(), &t); // UI-8
         wiki::dialogs(self, ui.ctx(), &t); // UI-27..30
+        import_dialog::dialogs(self, ui.ctx(), &t); // fixes
         toast::show(self, ui.ctx(), &t); // UI-5
         self.apply_pending();
     }
@@ -668,6 +694,10 @@ impl TrackApp {
     ///   dialog with a template chosen (UI-29)
     /// - `ui.pageDialog` `{"kind": "copy"|"move"|"saveTemplate"|"templates", "id": 24}`: opens a
     ///   page dialog (UI-29, UI-30)
+    /// - `ui.peek` `{"key": "LUME-4"}`: opens the peek pane on the issue list, board or backlog
+    ///   (selecting the issue there); `{"key": null}` closes it (fixes)
+    /// - `ui.import` `{}` opens File › Import…; `{"kind": "jiraCsv"|"jiraJson"|"confluence",
+    ///   "path": "/abs/export", "space": "KEY"}` runs the import and shows its report (fixes)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -768,6 +798,37 @@ impl TrackApp {
             }
             // UI-27..30
             "ui.newPage" | "ui.pageDialog" => wiki::control(self, method, &p),
+            // fixes
+            "ui.peek" => {
+                if p.get("key").is_none_or(Value::is_null) {
+                    self.peek = None;
+                    return Ok(json!({"ok": true}));
+                }
+                if !peek::peekable(&self.view) {
+                    return Err("ui.peek works on the issue list, a board or a backlog".into());
+                }
+                let k = IssueKey::parse(&s("key")).map_err(|e| e.to_string())?;
+                if !self.session.ws.issues.contains_key(&k) {
+                    return Err(format!("no issue {k}"));
+                }
+                peek::open(self, k);
+                self.scroll_sel = true;
+                Ok(json!({"ok": true}))
+            }
+            // fixes
+            "ui.import" => {
+                let path = s("path");
+                if path.is_empty() {
+                    self.import.choose = true;
+                    return Ok(json!({"ok": true}));
+                }
+                let mut params = json!({"kind": s("kind"), "path": path});
+                if !s("space").is_empty() {
+                    params["space"] = json!(s("space"));
+                }
+                self.import_with(&params, &path);
+                Ok(json!({"ok": true, "report": self.import.report.is_some()}))
+            }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),
         }
     }

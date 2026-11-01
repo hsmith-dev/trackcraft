@@ -1,5 +1,6 @@
 //! Page tree moves (UI-30): drag and drop in the sidebar tree (onto a row: child; its top or
-//! bottom quarter: before or after), and the Copy and Move to… dialogs from a page's More menu.
+//! bottom quarter: before or after; onto a space's row: under its home, so pages move between
+//! spaces too), and the Copy and Move to… dialogs from a page's More menu.
 
 use egui::{Rect, RichText, Stroke, Ui, pos2};
 use serde_json::json;
@@ -37,9 +38,21 @@ fn inside(ws: &Workspace, page: Id, target: Id) -> bool {
     target == page || ws.ancestors(target).contains(&page)
 }
 
-/// The two pages are in different spaces (pages move between spaces by copy).
-fn other_space(ws: &Workspace, a: Id, b: Id) -> bool {
-    ws.pages.get(&a).map(|p| &p.space) != ws.pages.get(&b).map(|p| &p.space)
+/// The name of the space `target` is in, when that's not `page`'s space (a cross-space move).
+fn other_space(ws: &Workspace, page: Id, target: Id) -> Option<String> {
+    let to = &ws.pages.get(&target)?.space;
+    if ws.pages.get(&page).map(|p| &p.space) == Some(to) {
+        return None;
+    }
+    Some(ws.spaces.get(to).map_or_else(|| to.to_string(), |s| s.name.clone()))
+}
+
+/// The toast after moving `title` next to or under `target`.
+fn moved_text(ws: &Workspace, page: Id, target: Id, title: &str) -> String {
+    match other_space(ws, page, target) {
+        Some(space) => format!("Moved “{title}” to {space}"),
+        None => format!("Moved “{title}”"),
+    }
 }
 
 /// How long a dragged page hovers a collapsed row before it opens.
@@ -48,13 +61,27 @@ const OPEN_AFTER: f64 = 0.6;
 /// Drop handling for one sidebar tree row: paints the indicator while a page is dragged over
 /// `row`, opens a collapsed row after a short hover, and returns the move on release.
 pub(crate) fn tree_drop(app: &mut TrackApp, ui: &Ui, t: &Tokens, row: Rect, target: Id, collapsed: bool) -> Option<Action> {
+    drop_on(app, ui, t, row, target, collapsed, false)
+}
+
+/// Drop handling for a space's row in the sidebar: a page dropped there goes under the space's
+/// home page (from another space too). Returns the move on release, and whether a page is being
+/// dragged over the row (the sidebar opens a closed space then).
+pub(crate) fn space_drop(app: &mut TrackApp, ui: &Ui, t: &Tokens, row: Rect, home: Id) -> (Option<Action>, bool) {
+    let over = egui::DragAndDrop::has_payload_of_type::<PageDrag>(ui.ctx()) && ui.ctx().pointer_latest_pos().is_some_and(|p| row.contains(p));
+    (drop_on(app, ui, t, row, home, false, true), over)
+}
+
+fn drop_on(app: &mut TrackApp, ui: &Ui, t: &Tokens, row: Rect, target: Id, collapsed: bool, child_only: bool) -> Option<Action> {
     let dragged = egui::DragAndDrop::payload::<PageDrag>(ui.ctx())?.0;
     let p = ui.ctx().pointer_latest_pos()?;
-    if !row.contains(p) || !ui.clip_rect().contains(p) || inside(&app.session.ws, dragged, target) || other_space(&app.session.ws, dragged, target) {
+    if !row.contains(p) || !ui.clip_rect().contains(p) || inside(&app.session.ws, dragged, target) {
         return None;
     }
     let q = row.height() / 4.0;
-    let place = if p.y < row.top() + q {
+    let place = if child_only {
+        Place::Child
+    } else if p.y < row.top() + q {
         Place::Before
     } else if p.y > row.bottom() - q {
         Place::After
@@ -93,8 +120,10 @@ pub(crate) fn tree_drop(app: &mut TrackApp, ui: &Ui, t: &Tokens, row: Rect, targ
     if place == Place::Child {
         app.expanded.insert(target);
     }
-    let what = app.session.ws.pages.get(&dragged).map(|p| p.title.clone()).unwrap_or_default();
-    Some(Action::Run { id: "page.move", params: place.params(dragged, target), then: Then::Toast(format!("Moved “{what}”")) })
+    let ws = &app.session.ws;
+    let what = ws.pages.get(&dragged).map(|p| p.title.clone()).unwrap_or_default();
+    let text = moved_text(ws, dragged, target, &what);
+    Some(Action::Run { id: "page.move", params: place.params(dragged, target), then: Then::Toast(text) })
 }
 
 /// One destination row: a page, how deep it is, its title and its breadcrumb.
@@ -227,12 +256,11 @@ pub(crate) fn copy_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens, f
 pub(crate) fn move_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens, form: &mut MoveForm) -> bool {
     let ws = &app.session.ws;
     let title = ws.pages.get(&form.page).map(|p| p.title.clone()).unwrap_or_default();
-    // Pages move within their space; another space takes a copy.
-    let space = ws.pages.get(&form.page).map(|p| p.space.clone());
+    // Every space is offered: across spaces the subtree, comments and history go along.
     let q = form.filter.to_lowercase();
     let dests: Vec<Dest> = destinations(ws)
         .into_iter()
-        .filter(|d| !inside(ws, form.page, d.id) && ws.pages.get(&d.id).map(|p| &p.space) == space.as_ref())
+        .filter(|d| !inside(ws, form.page, d.id))
         .filter(|d| q.is_empty() || d.title.to_lowercase().contains(&q) || d.crumbs.to_lowercase().contains(&q))
         .take(200)
         .collect();
@@ -241,7 +269,7 @@ pub(crate) fn move_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens, f
     let modal = egui::Modal::new(egui::Id::unique("move-page")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.heading("Move page");
-        ui.label(RichText::new(format!("Move “{title}” within its space (use Copy for another space)")).color(t.muted));
+        ui.label(RichText::new(format!("Move “{title}” and its child pages, in this space or another")).color(t.muted));
         ui.add_space(6.0);
         let l = ui.label("Find a page");
         let r = ui.add(egui::TextEdit::singleline(&mut form.filter).hint_text("Type to filter").desired_width(f32::INFINITY)).labelled_by(l.id);
@@ -287,13 +315,14 @@ pub(crate) fn move_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens, f
     });
     close |= modal.should_close();
     if submit && let Some(target) = form.target {
+        let text = moved_text(&app.session.ws, form.page, target, &title);
         match app.session.run("page.move", &form.place.params(form.page, target)) {
             Ok(v) => {
                 app.jql_ran = None;
                 if let Some(parent) = v["parentId"].as_u64() {
                     app.expanded.insert(Id(parent));
                 }
-                app.notify_done(format!("Moved “{title}”"), true);
+                app.notify_done(text, true);
                 return false;
             }
             Err(e) => form.error = Some(e),

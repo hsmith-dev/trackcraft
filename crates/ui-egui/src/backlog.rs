@@ -24,6 +24,7 @@ pub(crate) const SHORTCUTS: &[(&str, &str)] = &[
     ("Mod+Shift+Up / Mod+Shift+Down", "Rank the issue up or down one step"),
     ("Mod+Shift+Home / Mod+Shift+End", "Rank to the top or bottom of its section"),
     ("Shift+S", "Move to sprint…"),
+    ("Space", "Peek at the selected issue"), // fixes
 ];
 
 const ROW_H: f32 = 36.0;
@@ -245,6 +246,7 @@ pub(crate) fn backlog(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, project: &Pro
     let scroll = std::mem::take(&mut app.scroll_sel);
     let mut drop: Option<Drop> = None;
     let mut open: Option<IssueKey> = None;
+    let mut peek: Option<IssueKey> = None; // fixes
     let mut actions: Vec<Action> = vec![];
     let mut submit: Option<InlineCreate> = None;
 
@@ -352,6 +354,9 @@ pub(crate) fn backlog(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, project: &Pro
                     if inner.inner.on_hover_text(&issue.summary).clicked() {
                         open = Some(k.clone());
                     }
+                    if crate::peek::hover_button(ui, rect, k) {
+                        peek = Some(k.clone()); // fixes
+                    }
                     if sel && scroll {
                         ui.scroll_to_rect(rect, None);
                     }
@@ -410,6 +415,9 @@ pub(crate) fn backlog(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, project: &Pro
         if let Some(a) = drop_action(app, &secs, d) {
             app.push(a);
         }
+    }
+    if let Some(k) = peek {
+        crate::peek::open(app, k); // fixes
     }
     if let Some(k) = open {
         app.backlog.sel = Some(k.clone());

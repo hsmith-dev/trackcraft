@@ -63,6 +63,8 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let ws = &app.session.ws;
     let cx = RowCx { t, ws, now: app.session.now() };
     let mut open = None;
+    let mut hover = None; // fixes: the row under the pointer gets a Peek button
+    let pointer = ui.ctx().pointer_latest_pos();
     let mut sort: Option<&str> = None;
     card(ui, t, "", |ui| {
         ui.visuals_mut().selection.bg_fill = t.accent_soft;
@@ -105,12 +107,23 @@ pub(crate) fn list(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                     let n = row.index();
                     let Some(issue) = keys.get(n).and_then(|k| ws.issues.get(k)) else { return };
                     row.set_selected(sel_row == Some(n));
-                    if issue_row(&mut row, &cx, issue, &cols).is_some_and(|r| r.clicked()) {
+                    let r = issue_row(&mut row, &cx, issue, &cols);
+                    if r.as_ref().is_some_and(|r| r.clicked()) {
                         open = Some(issue.key.clone());
+                    }
+                    if let Some(r) = r
+                        && pointer.is_some_and(|p| r.rect.contains(p))
+                    {
+                        hover = Some((r.rect, issue.key.clone()));
                     }
                 });
             });
     });
+    if let Some((rect, k)) = hover
+        && crate::peek::hover_button(ui, rect, &k)
+    {
+        crate::peek::open(app, k);
+    }
     if let Some(field) = sort {
         app.push(Action::Search(crate::order::sort_by(&app.jql, field)));
     }
