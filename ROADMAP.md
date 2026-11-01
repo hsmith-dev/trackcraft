@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **55 / 110 (50.0%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Feature catalog coverage | **66 / 116 (56.9%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | Ready for real work | **~22%**: single-user desktop app with backlog and sprints; no server or import | estimated |
-| Commands | 48 | measured (`trackcraft-cli commands`) |
+| Commands | 62 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -35,6 +35,13 @@ parity.
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-10-31 · M2.3, M3.1, UI-5, UI-6, UI-8** (five agents in parallel) — Tracker commands
+  (workspace rename, user edit, unlink, comment edit, issue type/parent changes, sprint fixes,
+  `Session::revision`); wiki depth in the engine (page and inline comments, version diff,
+  templates, page copy and ordering); toast stack with Undo and a status bar; empty states and a
+  hostile-data pass with a stress fixture; a sidebar that scales (filter, starred, recent,
+  directories) with back/forward and palette routing.
 
 - **2026-10-31 · UI-1, UI-2, UI-3, UI-4, M2.2, UI-11/12** (agents in parallel) — Unsaved-edit
   guard; UI crate split into modules; virtualised issue list with paging and a column chooser;

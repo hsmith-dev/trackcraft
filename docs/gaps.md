@@ -5,7 +5,7 @@
 
 | # | Gap | Why it ranks here | Milestone |
 | --- | --- | --- | --- |
-| 1 | UI polish from [`ui-plan.md`](ui-plan.md): toasts with Undo + status bar (UI-5), empty/hostile-data states (UI-6), settings (UI-7), sidebar scaling (UI-8), issue view polish (UI-9), Open Recent menu, dirty-on-close prompt, Alt+Left while typing on macOS | control channel, autosave, recents and keyboard nav landed 2026-10-31 | M1 |
+| 1 | UI polish from [`ui-plan.md`](ui-plan.md): settings (UI-7), issue view polish (UI-9), activity tab (UI-13), wiki screens for comments/diff/templates (UI-27..30), Open Recent menu, dirty-on-close prompt, Alt+Left while typing on macOS, keyboard move into the "Other statuses" board column fails with an error, long project names wrap in the sidebar, the 10k-issue board pages cards ("Show more") rather than virtualising; bundled font lacks CJK/Arabic/Devanagari/emoji (boxes, no crash) | control channel, autosave, recents and keyboard nav landed 2026-10-31 | M1 |
 | 2 | Server as a mountable library + identity/event-bus traits, so the optional suite server can host TrackCraft and Chatcraft together | decided 2026-10-31 (architecture §1); design before M4 code | M4 |
 | 3 | Snapshot undo is O(workspace) per change; no op log | needed for activity history, sync and large workspaces | M2/M4 |
 | 4 | Sprint follow-ups: sprint-board keyboard navigation walks the whole project's cards (UI) | backlog, rank and sprints landed 2026-10-31 (M2.2, UI-11/12); completion guard, start name, create-in-sprint and date clearing landed (M2.3) | M2 |
