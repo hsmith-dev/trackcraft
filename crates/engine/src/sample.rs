@@ -119,7 +119,7 @@ fn plan(w: &mut Workspace, now: Timestamp) {
     let keys = |ks: &[&str]| ks.iter().map(|k| k.to_string()).collect::<Vec<_>>();
     if let Ok(s1) = w.create_sprint("LUME", None, Some("Recent notes open without a connection"), None, None) {
         let _ = w.set_sprint(&keys(&["LUME-4", "LUME-2", "LUME-3"]), Some(s1), "riley", ago(5));
-        let _ = w.start_sprint(s1, ago(5), ago(5) + Duration::days(14), None);
+        let _ = w.start_sprint(s1, None, ago(5), ago(5) + Duration::days(14), None);
     }
     let _ = w.create_sprint("LUME", None, Some("Harden long titles"), None, None);
 }

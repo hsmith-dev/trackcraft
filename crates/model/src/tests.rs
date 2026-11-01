@@ -24,7 +24,7 @@ fn issues_number_up_and_never_reuse_keys() {
     let a = w.create_issue(new("First"), "ann", t(1)).unwrap();
     let b = w.create_issue(new("Second"), "ann", t(1)).unwrap();
     assert_eq!((a.to_string(), b.to_string()), ("ATLAS-1".into(), "ATLAS-2".into()));
-    w.delete_issue("ATLAS-2").unwrap();
+    w.delete_issue("ATLAS-2", "ann", t(5)).unwrap();
     assert_eq!(w.create_issue(new("Third"), "ann", t(1)).unwrap().to_string(), "ATLAS-3");
     assert_eq!(w.issue("atlas-1").unwrap().status, "To Do");
 }
@@ -68,7 +68,7 @@ fn subtasks_links_and_deletes() {
     w.link("ATLAS-3", LinkKind::Blocks, "ATLAS-2", "ann", t(1)).unwrap();
     assert!(w.link("ATLAS-3", LinkKind::Blocks, "ATLAS-2", "ann", t(1)).is_err());
     assert!(w.link("ATLAS-3", LinkKind::Blocks, "ATLAS-3", "ann", t(1)).is_err());
-    let gone = w.delete_issue("ATLAS-1").unwrap();
+    let gone = w.delete_issue("ATLAS-1", "ann", t(5)).unwrap();
     assert_eq!(gone.len(), 2);
     assert!(w.issue("ATLAS-3").unwrap().links.is_empty());
 }
@@ -421,20 +421,20 @@ fn sprint_lifecycle() {
     let (mut w, s) = sprint_ws();
     assert_eq!(w.sprint(s).unwrap().name, "ATLAS Sprint 1");
     assert_eq!(w.sprint(s).unwrap().state, SprintState::Future);
-    assert!(w.start_sprint(s, t(1), t(9), None).is_err(), "no issues yet");
+    assert!(w.start_sprint(s, None, t(1), t(9), None).is_err(), "no issues yet");
     w.set_sprint(&["ATLAS-1".into(), "ATLAS-2".into()], Some(s), "ann", t(2)).unwrap();
     let h = w.issue("ATLAS-1").unwrap().history.last().unwrap().clone();
     assert_eq!((h.field.as_str(), h.from.clone(), h.to.clone()), ("sprint", None, Some("ATLAS Sprint 1".into())));
-    assert!(w.start_sprint(s, t(9), t(1), None).is_err(), "end before start");
-    w.start_sprint(s, t(1), t(9), Some("Ship it now")).unwrap();
+    assert!(w.start_sprint(s, None, t(9), t(1), None).is_err(), "end before start");
+    w.start_sprint(s, None, t(1), t(9), Some("Ship it now")).unwrap();
     assert_eq!(w.sprint(s).unwrap().state, SprintState::Active);
     assert_eq!(w.sprint(s).unwrap().goal, "Ship it now");
-    assert!(w.start_sprint(s, t(1), t(9), None).is_err(), "already active");
+    assert!(w.start_sprint(s, None, t(1), t(9), None).is_err(), "already active");
 
     let s2 = w.create_sprint("ATLAS", None, None, None, None).unwrap();
     assert_eq!(w.sprint(s2).unwrap().name, "ATLAS Sprint 2");
     w.set_sprint(&["ATLAS-3".into()], Some(s2), "ann", t(2)).unwrap();
-    let e = w.start_sprint(s2, t(1), t(9), None).unwrap_err().to_string();
+    let e = w.start_sprint(s2, None, t(1), t(9), None).unwrap_err().to_string();
     assert!(e.contains("already active"), "{e}");
 
     w.transition("ATLAS-1", "Done", "ann", t(3)).unwrap();
@@ -454,13 +454,13 @@ fn sprint_lifecycle() {
     assert!(w.set_sprint(&["ATLAS-4".into()], Some(s), "ann", t(11)).is_err());
     assert!(w.delete_sprint(s, "ann", t(11)).is_err());
     assert!(w.complete_sprint(s, MoveOpenTo::Backlog, "ann", t(11)).is_err());
-    assert!(w.edit_sprint(s, SprintEdit { start: Some(t(1)), ..SprintEdit::default() }).is_err());
+    assert!(w.edit_sprint(s, SprintEdit { start: Some(Some(t(1))), ..SprintEdit::default() }).is_err());
     w.edit_sprint(s, SprintEdit { name: Some("Renamed".into()), ..SprintEdit::default() }).unwrap();
     assert!(w.complete_sprint(s2, MoveOpenTo::Backlog, "ann", t(11)).is_err(), "not active");
     assert!(w.complete_sprint(s2, MoveOpenTo::Sprint(s), "ann", t(11)).is_err());
 
     // Complete into a new sprint.
-    w.start_sprint(s2, t(11), t(20), None).unwrap();
+    w.start_sprint(s2, None, t(11), t(20), None).unwrap();
     assert!(w.complete_sprint(s2, MoveOpenTo::Sprint(s), "ann", t(20)).is_err(), "can't move into a closed sprint");
     let c = w.complete_sprint(s2, MoveOpenTo::New, "ann", t(20)).unwrap();
     let new_id = c.to.unwrap();
@@ -494,7 +494,7 @@ fn sprint_refusals_and_delete() {
     for k in ["ATLAS-1", "ATLAS-5", "ATLAS-6"] {
         w.transition(k, "Done", "ann", t(3)).unwrap();
     }
-    assert!(w.start_sprint(s, t(1), t(9), None).unwrap_err().to_string().contains("no open issues"));
+    assert!(w.start_sprint(s, None, t(1), t(9), None).unwrap_err().to_string().contains("no open issues"));
 
     let back = w.delete_sprint(s, "bob", t(4)).unwrap();
     assert_eq!(back.len(), 3);
@@ -508,7 +508,7 @@ fn sprint_refusals_and_delete() {
 fn jql_sprint_fields_and_functions() {
     let (mut w, s) = sprint_ws();
     w.set_sprint(&["ATLAS-1".into(), "ATLAS-2".into()], Some(s), "ann", t(2)).unwrap();
-    w.start_sprint(s, t(1), t(9), None).unwrap();
+    w.start_sprint(s, None, t(1), t(9), None).unwrap();
     w.transition("ATLAS-1", "Done", "ann", t(3)).unwrap();
     let s2 = w.create_sprint("ATLAS", Some("Next"), None, None, None).unwrap();
     w.set_sprint(&["ATLAS-3".into()], Some(s2), "ann", t(2)).unwrap();
@@ -537,4 +537,149 @@ fn jql_sprint_fields_and_functions() {
     let q = parse("sprint IN futureSprints()").unwrap();
     let r = IssueRecord { ws: &w, issue: w.issue("ATLAS-1").unwrap() };
     assert!(matches(&q, &r, &Context { current_user: None, now: t(12) }).is_err(), "unknown list function");
+}
+
+// ---- M2.3: hierarchy edits, unlink, comment edit, delete history, sprint rules ----------------
+
+fn sub(parent: &str, summary: &str) -> NewIssue {
+    NewIssue { issue_type: Some("Sub-task".into()), parent: Some(parent.into()), ..new(summary) }
+}
+
+fn epic(summary: &str) -> NewIssue {
+    NewIssue { issue_type: Some("Epic".into()), ..new(summary) }
+}
+
+#[test]
+fn delete_records_lost_links_and_parents_on_other_issues() {
+    let mut w = ws();
+    w.create_issue(epic("Epic"), "ann", t(1)).unwrap(); // 1
+    w.create_issue(NewIssue { parent: Some("ATLAS-1".into()), ..new("Story") }, "ann", t(1)).unwrap(); // 2
+    w.create_issue(new("Other"), "ann", t(1)).unwrap(); // 3
+    w.link("ATLAS-3", LinkKind::Blocks, "ATLAS-1", "ann", t(1)).unwrap();
+    w.delete_issue("ATLAS-1", "bob", t(6)).unwrap();
+    assert_eq!(fields(&w, "ATLAS-2").last().cloned(), Some(("parent".into(), s("ATLAS-1"), None)));
+    assert_eq!(fields(&w, "ATLAS-3").last().cloned(), Some(("link".into(), s("This issue blocks ATLAS-1"), None)));
+    let c = w.issue("ATLAS-3").unwrap().history.last().unwrap().clone();
+    assert_eq!((c.author.as_str(), c.at), ("bob", t(6)));
+    assert_eq!(w.issue("ATLAS-2").unwrap().updated, t(6));
+}
+
+#[test]
+fn unlink_removes_either_side_and_records() {
+    let mut w = ws();
+    w.create_issue(new("A"), "ann", t(1)).unwrap();
+    w.create_issue(new("B"), "ann", t(1)).unwrap();
+    w.link("ATLAS-1", LinkKind::Blocks, "ATLAS-2", "ann", t(1)).unwrap();
+    assert!(w.unlink("ATLAS-1", LinkKind::Relates, "ATLAS-2", "ann", t(2)).is_err(), "wrong kind");
+    w.unlink("ATLAS-2", LinkKind::Blocks, "ATLAS-1", "bob", t(2)).unwrap(); // from the inward side
+    assert!(w.issue("ATLAS-1").unwrap().links.is_empty());
+    assert_eq!(fields(&w, "ATLAS-1").last().cloned(), Some(("link".into(), s("This issue blocks ATLAS-2"), None)));
+    assert!(w.unlink("ATLAS-1", LinkKind::Blocks, "ATLAS-2", "ann", t(2)).is_err(), "already gone");
+    assert!(w.unlink("ATLAS-1", LinkKind::Blocks, "ATLAS-99", "ann", t(2)).is_err());
+}
+
+#[test]
+fn edit_comment_is_author_only() {
+    let mut w = ws();
+    w.create_issue(new("A"), "ann", t(1)).unwrap();
+    let id = w.add_comment("ATLAS-1", "ann", Doc::plain("first"), t(1)).unwrap();
+    assert!(w.edit_comment("ATLAS-1", id, Doc::plain("hijack"), "bob", t(2)).is_err());
+    assert!(w.edit_comment("ATLAS-1", id, Doc::default(), "ann", t(2)).is_err());
+    assert!(w.edit_comment("ATLAS-1", Id(999_999), Doc::plain("x"), "ann", t(2)).is_err());
+    w.edit_comment("ATLAS-1", id, Doc::plain("second"), "ann", t(3)).unwrap();
+    let c = &w.issue("ATLAS-1").unwrap().comments[0];
+    assert_eq!((c.body.plain_text().trim(), c.created, c.updated), ("second", t(1), t(3)));
+    assert_eq!(fields(&w, "ATLAS-1").last().cloned(), Some(("comment".into(), s("first"), s("second"))));
+}
+
+#[test]
+fn type_and_parent_changes_keep_the_hierarchy_valid() {
+    let mut w = ws();
+    w.create_issue(epic("Epic"), "ann", t(1)).unwrap(); // 1
+    w.create_issue(new("Story"), "ann", t(1)).unwrap(); // 2
+    w.create_issue(sub("ATLAS-2", "Sub"), "ann", t(1)).unwrap(); // 3
+    w.create_issue(new("Loose"), "ann", t(1)).unwrap(); // 4
+    let set = |w: &mut Workspace, k: &str, ty: Option<&str>, p: Option<Option<&str>>| w.set_type_and_parent(k, ty, p, "bob", t(4));
+
+    assert!(set(&mut w, "ATLAS-4", Some("Saga"), None).is_err(), "unknown type");
+    assert!(set(&mut w, "ATLAS-4", Some("Sub-task"), None).is_err(), "a sub-task needs a parent");
+    assert!(set(&mut w, "ATLAS-4", Some("Sub-task"), Some(Some("ATLAS-1"))).is_err(), "not under an epic");
+    assert!(set(&mut w, "ATLAS-4", Some("Sub-task"), Some(Some("ATLAS-3"))).is_err(), "not under a sub-task");
+    assert!(set(&mut w, "ATLAS-4", None, Some(Some("ATLAS-3"))).is_err(), "nothing under a sub-task");
+    assert!(set(&mut w, "ATLAS-1", None, Some(Some("ATLAS-4"))).is_err(), "an epic has no parent");
+    assert!(set(&mut w, "ATLAS-4", None, Some(Some("ATLAS-4"))).is_err(), "not its own parent");
+    assert!(set(&mut w, "ATLAS-2", Some("Sub-task"), Some(Some("ATLAS-4"))).is_err(), "has children");
+    assert!(set(&mut w, "ATLAS-2", Some("Epic"), None).is_err(), "an epic can't hold sub-tasks");
+    assert!(set(&mut w, "ATLAS-3", None, Some(None)).is_err(), "a sub-task keeps a parent");
+
+    // Story under the epic, then cycle refusal.
+    set(&mut w, "ATLAS-2", None, Some(Some("ATLAS-1"))).unwrap();
+    assert_eq!(fields(&w, "ATLAS-2").last().cloned(), Some(("parent".into(), None, s("ATLAS-1"))));
+    set(&mut w, "ATLAS-4", None, Some(Some("ATLAS-2"))).unwrap();
+    set(&mut w, "ATLAS-1", Some("Task"), None).unwrap();
+    assert!(set(&mut w, "ATLAS-1", None, Some(Some("ATLAS-4"))).is_err(), "cycle");
+
+    // Sub-task → task clears the parent; task → sub-task takes one and its sprint.
+    set(&mut w, "ATLAS-3", Some("Task"), None).unwrap();
+    let i = w.issue("ATLAS-3").unwrap();
+    assert_eq!((i.issue_type.as_str(), i.parent.clone()), ("Task", None));
+    let f = fields(&w, "ATLAS-3");
+    assert_eq!(f[f.len() - 2..], [("issuetype".into(), s("Sub-task"), s("Task")), ("parent".into(), s("ATLAS-2"), None)]);
+    let sp = w.create_sprint("ATLAS", None, None, None, None).unwrap();
+    w.set_sprint(&["ATLAS-1".into()], Some(sp), "ann", t(4)).unwrap();
+    set(&mut w, "ATLAS-3", Some("sub-task"), Some(Some("atlas-1"))).unwrap();
+    let i = w.issue("ATLAS-3").unwrap();
+    assert_eq!((i.issue_type.as_str(), i.parent.as_ref().map(ToString::to_string), i.sprint), ("Sub-task", Some("ATLAS-1".into()), Some(sp)));
+    // Becoming an epic drops the parent.
+    set(&mut w, "ATLAS-4", Some("Epic"), None).unwrap();
+    assert_eq!(w.issue("ATLAS-4").unwrap().parent, None);
+    // A no-op edit records nothing.
+    let n = w.issue("ATLAS-4").unwrap().history.len();
+    set(&mut w, "ATLAS-4", Some("Epic"), None).unwrap();
+    assert_eq!(w.issue("ATLAS-4").unwrap().history.len(), n);
+}
+
+#[test]
+fn sprint_complete_refuses_done_parents_with_open_subtasks() {
+    let (mut w, s) = sprint_ws();
+    w.create_issue(sub("ATLAS-1", "sub"), "ann", t(1)).unwrap(); // 5
+    w.set_sprint(&["ATLAS-1".into(), "ATLAS-2".into()], Some(s), "ann", t(2)).unwrap();
+    w.start_sprint(s, Some("Renamed on start"), t(1), t(9), None).unwrap();
+    assert_eq!(w.sprint(s).unwrap().name, "Renamed on start");
+    w.transition("ATLAS-1", "Done", "ann", t(3)).unwrap();
+    let e = w.complete_sprint(s, MoveOpenTo::Backlog, "ann", t(9)).unwrap_err().to_string();
+    assert!(e.contains("ATLAS-1 (ATLAS-5)"), "{e}");
+    w.transition("ATLAS-5", "Done", "ann", t(4)).unwrap();
+    w.complete_sprint(s, MoveOpenTo::Backlog, "ann", t(9)).unwrap();
+}
+
+#[test]
+fn sprint_dates_clear_only_on_future_sprints() {
+    let (mut w, s) = sprint_ws();
+    w.edit_sprint(s, SprintEdit { start: Some(Some(t(1))), end: Some(Some(t(9))), ..SprintEdit::default() }).unwrap();
+    w.edit_sprint(s, SprintEdit { end: Some(None), ..SprintEdit::default() }).unwrap();
+    assert_eq!((w.sprint(s).unwrap().start, w.sprint(s).unwrap().end), (Some(t(1)), None));
+    w.set_sprint(&["ATLAS-1".into()], Some(s), "ann", t(2)).unwrap();
+    w.start_sprint(s, None, t(1), t(9), None).unwrap();
+    assert!(w.edit_sprint(s, SprintEdit { start: Some(None), ..SprintEdit::default() }).is_err());
+    w.edit_sprint(s, SprintEdit { end: Some(Some(t(10))), ..SprintEdit::default() }).unwrap();
+}
+
+#[test]
+fn workspace_rename_and_user_edit() {
+    let mut w = ws();
+    w.rename("  New name ").unwrap();
+    assert_eq!(w.name, "New name");
+    assert!(w.rename("").is_err());
+    assert!(w.rename("a\nb").is_err());
+    w.edit_user("ann", Some("Ann Lee"), Some(Some("ann@example.com"))).unwrap();
+    assert_eq!((w.users["ann"].display_name.as_str(), w.users["ann"].email.as_deref()), ("Ann Lee", Some("ann@example.com")));
+    let long = format!("{}@x.org", "a".repeat(300));
+    for bad in ["nope", "a@b", "@x.org", "a b@x.org", "a@@x.org", "a@x.org.", long.as_str()] {
+        assert!(w.edit_user("ann", None, Some(Some(bad))).is_err(), "{bad}");
+    }
+    w.edit_user("ann", None, Some(None)).unwrap();
+    assert_eq!(w.users["ann"].email, None);
+    assert!(w.edit_user("nobody", Some("x"), None).is_err());
+    assert!(w.edit_user("ann", Some(" "), None).is_err());
 }

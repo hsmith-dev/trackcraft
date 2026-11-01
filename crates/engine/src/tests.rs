@@ -32,7 +32,7 @@ fn catalog_ids_exist_and_floor_holds() {
     }
     let (done, total) = catalog::coverage();
     // The floor only rises: raise it when you implement catalog rows.
-    assert!(done >= 55, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 61, "catalog coverage fell to {done}/{total}");
 }
 
 /// Every command, fed junk, returns an error or a value — never a panic, and a failed command
@@ -71,6 +71,30 @@ fn hostile_params_never_panic() {
         json!({"project": "LUME", "sprint": "active", "name": "\u{0}", "goal": "é".repeat(5_000), "startDate": "+999999-01-01T00:00:00Z"}),
         json!({"project": "OPS", "sprint": "active", "jql": "sprint IN openSprints("}),
         json!({"project": "LUME", "jql": "sprint IN nope() ORDER BY rank"}),
+        // M2.3 params: workspace.rename, user.edit, issue.unlink/editComment, issue.edit type/parent,
+        // issue.create sprint, sprint.start name, sprint.edit null dates.
+        json!({"name": "\u{0}\n", "id": "riley", "email": 7}),
+        json!({"name": "n".repeat(100_000), "id": "riley", "email": format!("{}@x.org", "a".repeat(100_000))}),
+        json!({"id": "riley", "email": "not an email", "name": []}),
+        json!({"id": ["riley"], "email": null, "name": null}),
+        json!({"key": "LUME-6", "type": "blocks", "target": "LUME-2"}),
+        json!({"key": "LUME-2", "type": "nope", "target": "LUME-6"}),
+        json!({"key": "LUME-2", "type": 5, "target": ["LUME-6"]}),
+        json!({"key": "LUME-4", "id": 0, "body": "x"}),
+        json!({"key": "LUME-4", "id": "-1", "body": {"type": "doc", "content": [{"type": "paragraph"}]}}),
+        json!({"key": "LUME-7", "type": "Task", "parent": "LUME-7"}),
+        json!({"key": "LUME-2", "type": "Sub-task", "parent": "LUME-1"}),
+        json!({"key": "LUME-1", "type": "Epic", "parent": "LUME-2"}),
+        json!({"key": "LUME-2", "parent": {"key": "LUME-1"}, "issuetype": 3}),
+        json!({"key": "LUME-1", "parent": "LUME-7", "type": "x".repeat(10_000)}),
+        json!({"key": "LUME-3", "parent": null, "type": null}),
+        json!({"project": "LUME", "summary": "s", "sprint": "nope"}),
+        json!({"project": "LUME", "summary": "s", "sprint": u64::MAX}),
+        json!({"project": "LUME", "summary": "s", "type": "Sub-task", "parent": "LUME-2", "sprint": 1}),
+        json!({"project": "OPS", "summary": "s", "sprint": -3}),
+        json!({"id": 1, "startDate": null, "endDate": null, "name": "\u{0}"}),
+        json!({"id": "1", "startDate": null, "endDate": "2026-11-01", "name": "", "moveOpenTo": "backlog"}),
+        json!({"id": 1, "startDate": "2026-11-03", "endDate": "2026-11-17", "name": "x".repeat(1_000)}),
     ];
     for c in commands() {
         if c.id == "file.open" || c.id == "file.save" {
@@ -448,4 +472,180 @@ fn board_view_sprint_filter() {
     assert!(s.run("board.view", &json!({"project": "OPS", "sprint": "active"})).is_err());
     assert!(s.run("board.view", &json!({"project": "OPS", "sprint": active})).is_err(), "another project's sprint");
     assert!(s.run("board.view", &json!({"project": "LUME", "sprint": {}})).is_err());
+}
+
+// ---- M2.3: sprint fixes, history gaps, new commands, revision -------------------------------
+
+#[test]
+fn sprint_complete_refuses_a_done_parent_with_open_subtasks() {
+    let mut s = session();
+    let (active, _) = sprint_ids(&mut s);
+    run(&mut s, "issue.transition", json!({"key": "LUME-2", "to": "Done"}));
+    let e = s.run("sprint.complete", &json!({"id": active, "moveOpenTo": "backlog"})).unwrap_err();
+    assert!(e.contains("LUME-2 (LUME-7)"), "{e}");
+    run(&mut s, "issue.transition", json!({"key": "LUME-7", "to": "Done"}));
+    let c = run(&mut s, "sprint.complete", json!({"id": active, "moveOpenTo": "backlog"}));
+    assert_eq!(c["done"], json!(["LUME-2", "LUME-7"]));
+}
+
+#[test]
+fn sprint_start_name_and_edit_clears_dates() {
+    let mut s = session();
+    let (active, future) = sprint_ids(&mut s);
+    run(&mut s, "sprint.edit", json!({"id": future, "startDate": "2026-11-10", "endDate": "2026-11-24"}));
+    let e = run(&mut s, "sprint.edit", json!({"id": future, "startDate": null}));
+    assert_eq!((e["startDate"].clone(), e["endDate"].clone()), (Value::Null, json!("2026-11-24T00:00:00+00:00")));
+    let e = run(&mut s, "sprint.edit", json!({"id": future, "endDate": null}));
+    assert_eq!(e["endDate"], Value::Null);
+    assert!(s.run("sprint.edit", &json!({"id": active, "endDate": null})).is_err(), "only future sprints clear dates");
+    assert!(s.run("sprint.edit", &json!({"id": future, "startDate": 5})).is_err());
+
+    run(&mut s, "issue.transition", json!({"key": "LUME-7", "to": "Done"}));
+    run(&mut s, "sprint.complete", json!({"id": active, "moveOpenTo": future}));
+    let st = run(&mut s, "sprint.start", json!({"id": future, "name": "Harden", "startDate": "2026-11-02", "endDate": "2026-11-16"}));
+    assert_eq!((st["name"].clone(), st["state"].clone()), (json!("Harden"), json!("active")));
+}
+
+#[test]
+fn issue_create_in_a_sprint_is_one_undo_step() {
+    let mut s = session();
+    let (active, future) = sprint_ids(&mut s);
+    let depth = s.undo_depth();
+    let k = run(&mut s, "issue.create", json!({"project": "LUME", "summary": "Inline", "sprint": active}))["key"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(run(&mut s, "issue.get", json!({"key": k}))["sprint"]["id"], active);
+    assert_eq!(s.undo_depth(), depth + 1);
+    assert_eq!(history(&mut s, &k).len(), 1, "created + sprint are one change");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(s.run("issue.get", &json!({"key": k})).is_err());
+    // A sub-task follows its parent: the parent's sprint is accepted, any other refused.
+    run(&mut s, "issue.create", json!({"project": "LUME", "summary": "Sub", "type": "Sub-task", "parent": "LUME-2", "sprint": active}));
+    let e =
+        s.run("issue.create", &json!({"project": "LUME", "summary": "Sub", "type": "Sub-task", "parent": "LUME-2", "sprint": future})).unwrap_err();
+    assert!(e.contains("follows its parent"), "{e}");
+    assert!(s.run("issue.create", &json!({"project": "OPS", "summary": "x", "sprint": active})).is_err(), "another project's sprint");
+    assert!(s.run("issue.create", &json!({"project": "LUME", "summary": "x", "sprint": 999_999})).is_err());
+}
+
+#[test]
+fn delete_records_history_on_issues_that_lose_links_or_parents() {
+    let mut s = session();
+    let story = run(&mut s, "issue.create", json!({"project": "LUME", "summary": "Under the epic", "parent": "LUME-1"}))["key"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    run(&mut s, "issue.link", json!({"key": "LUME-6", "type": "relates to", "target": "LUME-1"}));
+    run(&mut s, "user.switch", json!({"id": "sam"}));
+    let d = run(&mut s, "issue.delete", json!({"key": "LUME-1"}));
+    assert_eq!(d["deleted"], json!(["LUME-1"]), "an epic's stories stay");
+    let h = history(&mut s, &story);
+    assert_eq!(h[0]["author"], "sam");
+    assert_eq!(items(&h[0]), [("parent".into(), json!("LUME-1"), Value::Null)]);
+    assert_eq!(items(&history(&mut s, "LUME-6")[0]), [("link".into(), json!("This issue relates to LUME-1"), Value::Null)]);
+    // Deleting a parent takes its sub-tasks and records the lost link on the linker.
+    let d = run(&mut s, "issue.delete", json!({"key": "LUME-2"}));
+    assert_eq!(d["deleted"], json!(["LUME-7", "LUME-2"]));
+    assert_eq!(items(&history(&mut s, "LUME-6")[0]), [("link".into(), json!("This issue blocks LUME-2"), Value::Null)]);
+}
+
+#[test]
+fn unlink_and_edit_comment() {
+    let mut s = session();
+    let e = s.run("issue.unlink", &json!({"key": "LUME-6", "type": "relates to", "target": "LUME-2"})).unwrap_err();
+    assert!(e.contains("no 'relates to' link"), "{e}");
+    // From the inward side, as the issue view of LUME-2 shows it.
+    run(&mut s, "issue.unlink", json!({"key": "LUME-2", "type": "blocks", "target": "LUME-6"}));
+    assert_eq!(run(&mut s, "issue.get", json!({"key": "LUME-6"}))["links"], json!([]));
+    assert_eq!(items(&history(&mut s, "LUME-6")[0]), [("link".into(), json!("This issue blocks LUME-2"), Value::Null)]);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(run(&mut s, "issue.get", json!({"key": "LUME-6"}))["links"][0]["key"], "LUME-2");
+
+    let comments = run(&mut s, "issue.get", json!({"key": "LUME-4"}))["comments"].clone();
+    let (mine, jos) = (comments[0]["id"].clone(), comments[1]["id"].clone());
+    let e = s.run("issue.editComment", &json!({"key": "LUME-4", "id": jos, "body": "Mine now"})).unwrap_err();
+    assert!(e.contains("only jo"), "{e}");
+    assert!(s.run("issue.editComment", &json!({"key": "LUME-4", "id": mine, "body": ""})).is_err());
+    assert!(s.run("issue.editComment", &json!({"key": "LUME-4", "id": mine})).is_err());
+    run(&mut s, "issue.editComment", json!({"key": "LUME-4", "id": mine, "body": "Reproduced on **every** build."}));
+    let c = run(&mut s, "issue.get", json!({"key": "LUME-4"}))["comments"][0].clone();
+    assert_eq!(c["body"], "Reproduced on **every** build.");
+    assert_eq!(c["updated"], "2026-10-31T12:00:00+00:00");
+    let h = history(&mut s, "LUME-4");
+    assert_eq!(
+        items(&h[0]),
+        [("comment".into(), json!("Reproduced on the latest build. Contrast ratio is about 2:1."), json!("Reproduced on every build."))]
+    );
+}
+
+#[test]
+fn issue_edit_type_and_parent() {
+    let mut s = session();
+    let e = s.run("issue.edit", &json!({"key": "LUME-6", "type": "Saga"})).unwrap_err();
+    assert!(e.contains("no issue type"), "{e}");
+    assert!(s.run("issue.edit", &json!({"key": "LUME-6", "type": "Sub-task"})).is_err(), "needs a parent");
+    assert!(s.run("issue.edit", &json!({"key": "LUME-6", "parent": "LUME-7"})).is_err(), "a sub-task can't be a parent");
+    assert!(s.run("issue.edit", &json!({"key": "LUME-1", "parent": "LUME-6"})).is_err(), "an epic has no parent");
+    assert!(s.run("issue.edit", &json!({"key": "LUME-6", "parent": 3})).is_err());
+
+    let r = run(&mut s, "issue.edit", json!({"key": "LUME-6", "parent": "LUME-1"}));
+    assert_eq!(r["changed"], json!(["parent"]));
+    assert!(s.run("issue.edit", &json!({"key": "LUME-1", "type": "Task", "parent": "LUME-6"})).is_err(), "cycle");
+    // Story → sub-task of LUME-2: takes LUME-2's sprint; history has type, parent and sprint.
+    run(&mut s, "issue.edit", json!({"key": "LUME-6", "type": "Sub-task", "parent": "LUME-2"}));
+    let i = run(&mut s, "issue.get", json!({"key": "LUME-6"}));
+    assert_eq!(
+        (i["issuetype"].clone(), i["parent"].clone(), i["sprint"]["name"].clone()),
+        (json!("Sub-task"), json!("LUME-2"), json!("LUME Sprint 1"))
+    );
+    assert_eq!(
+        items(&history(&mut s, "LUME-6")[0]),
+        [
+            ("issuetype".into(), json!("Bug"), json!("Sub-task")),
+            ("parent".into(), json!("LUME-1"), json!("LUME-2")),
+            ("sprint".into(), Value::Null, json!("LUME Sprint 1")),
+        ]
+    );
+    // Sub-task → Bug clears the parent and keeps the sprint.
+    run(&mut s, "issue.edit", json!({"key": "LUME-7", "type": "Bug"}));
+    let i = run(&mut s, "issue.get", json!({"key": "LUME-7"}));
+    assert_eq!((i["parent"].clone(), i["sprint"]["name"].clone()), (Value::Null, json!("LUME Sprint 1")));
+    run(&mut s, "issue.edit", json!({"key": "LUME-7", "parent": null}));
+    assert!(s.run("issue.edit", &json!({"key": "LUME-7"})).is_err(), "nothing to change");
+    let r = run(&mut s, "search.jql", json!({"jql": "parent = LUME-2"}));
+    assert_eq!(keys_of(&r["issues"]), ["LUME-6"]);
+}
+
+#[test]
+fn workspace_rename_and_user_edit_commands() {
+    let mut s = session();
+    assert_eq!(run(&mut s, "workspace.rename", json!({"name": " Harbor Labs "}))["name"], "Harbor Labs");
+    assert_eq!(run(&mut s, "workspace.info", json!({}))["name"], "Harbor Labs");
+    assert!(s.run("workspace.rename", &json!({"name": ""})).is_err());
+    assert!(s.can_undo(), "rename is undoable");
+    let u = run(&mut s, "user.edit", json!({"id": "sam", "name": "Samuel Okafor", "email": "sam@example.org"}));
+    assert_eq!(u, json!({"id": "sam", "name": "Samuel Okafor", "email": "sam@example.org"}));
+    assert_eq!(run(&mut s, "user.list", json!({}))[2]["email"], "sam@example.org");
+    assert_eq!(run(&mut s, "user.edit", json!({"id": "sam", "email": null}))["email"], Value::Null);
+    assert!(s.run("user.edit", &json!({"id": "sam"})).is_err(), "nothing to change");
+    assert!(s.run("user.edit", &json!({"id": "sam", "email": "nope"})).is_err());
+    assert!(s.run("user.edit", &json!({"id": "ghost", "name": "Ghost"})).is_err());
+}
+
+#[test]
+fn revision_counts_changes_undo_and_redo() {
+    let mut s = session();
+    assert_eq!((s.revision(), s.undo_depth(), s.redo_depth()), (0, 0, 0));
+    run(&mut s, "issue.transition", json!({"key": "LUME-3", "to": "In Progress"}));
+    assert_eq!((s.revision(), s.undo_depth()), (1, 1));
+    run(&mut s, "search.jql", json!({"jql": ""}));
+    assert!(s.run("issue.transition", &json!({"key": "LUME-3", "to": "Nowhere"})).is_err());
+    assert_eq!(s.revision(), 1, "queries and failures don't count");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((s.revision(), s.undo_depth(), s.redo_depth()), (2, 0, 1));
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!((s.revision(), s.undo_depth(), s.redo_depth()), (3, 1, 0));
+    run(&mut s, "workspace.new", json!({"name": "Fresh"}));
+    assert_eq!((s.revision(), s.undo_depth()), (4, 0));
 }

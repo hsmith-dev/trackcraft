@@ -175,7 +175,8 @@ pub struct IssueLink {
 /// One field change in an issue's activity history.
 ///
 /// Field names are the JQL names: `created`, `status`, `resolution`, `assignee`, `priority`,
-/// `summary`, `description`, `labels`, `storyPoints`, `sprint` (sprint names), `link`, `comment`. Entries made by one
+/// `summary`, `description`, `labels`, `storyPoints`, `sprint` (sprint names), `link`, `comment`,
+/// `issuetype`, `parent` (issue keys). Entries made by one
 /// command share an `id` (Jira's changelog groups them the same way). Values are display strings:
 /// user ids, status and priority names, labels space-separated. Rich text (description, comment
 /// bodies) is stored as a short plain-text preview ([`HISTORY_PREVIEW`] characters) so the history
@@ -513,19 +514,185 @@ impl Workspace {
         Ok(())
     }
 
-    /// Deletes an issue, its sub-tasks, and links pointing at them.
-    pub fn delete_issue(&mut self, key: &str) -> Result<Vec<IssueKey>> {
+    /// Removes the link `from` → `to` of `kind`. When `from` holds no such link but `to` holds
+    /// the same kind pointing back at `from` (the inward side, as the issue view shows it), that
+    /// one is removed. History is recorded on the issue that held the link.
+    pub fn unlink(&mut self, from: &str, kind: LinkKind, to: &str, author: &str, now: Timestamp) -> Result<()> {
+        let a = self.issue(from)?.key.clone();
+        let b = self.issue(to)?.key.clone();
+        let holds =
+            |w: &Self, src: &IssueKey, dst: &IssueKey| w.issues.get(src).is_some_and(|i| i.links.contains(&IssueLink { kind, target: dst.clone() }));
+        let (src, dst) = if holds(self, &a, &b) {
+            (a, b)
+        } else if holds(self, &b, &a) {
+            (b, a)
+        } else {
+            return Err(ModelError::Invalid(format!("{a} has no '{}' link with {b}", kind.outward())));
+        };
+        let i = self.issues.get_mut(&src).ok_or_else(|| ModelError::NoSuchIssue(src.to_string()))?;
+        i.links.retain(|l| !(l.kind == kind && l.target == dst));
+        i.updated = now;
+        let text = format!("This issue {} {dst}", kind.outward());
+        self.record(&src, author, now, vec![("link", Some(text), None)]);
+        Ok(())
+    }
+
+    /// Replaces a comment's body. Only the comment's author may edit it (Jira's default
+    /// permission for editing one's own comments).
+    pub fn edit_comment(&mut self, key: &str, id: Id, body: Doc, author: &str, now: Timestamp) -> Result<()> {
+        if body.is_empty() {
+            return Err(ModelError::Invalid("a comment can't be empty".into()));
+        }
+        let to = preview(&body);
+        let i = self.issue_mut(key)?;
+        let c = i.comments.iter_mut().find(|c| c.id == id).ok_or(ModelError::NoSuchComment(id))?;
+        if c.author != author {
+            return Err(ModelError::Invalid(format!("only {} can edit this comment", clip(&c.author, 128))));
+        }
+        let from = preview(&std::mem::replace(&mut c.body, body));
+        c.updated = now;
+        i.updated = now;
+        let k = i.key.clone();
+        self.record(&k, author, now, vec![("comment", from, to)]);
+        Ok(())
+    }
+
+    /// Changes an issue's type and/or parent, keeping the hierarchy consistent:
+    /// - the type must be one of the project's issue types;
+    /// - an epic has no parent; a sub-task has a parent in its own project that is neither an
+    ///   epic nor a sub-task; nothing has a sub-task as its parent; no cycles;
+    /// - a sub-task has no children, and an epic has no sub-tasks;
+    /// - `parent: None` keeps the parent, except that turning a sub-task into a standard issue
+    ///   clears it (a sub-task's parent can't parent a standard issue), and so does turning an issue
+    ///   into an epic; `Some(None)` clears it.
+    ///
+    /// A sub-task joins its parent's open sprint. Records `issuetype`, `parent` (and `sprint`).
+    pub fn set_type_and_parent(&mut self, key: &str, ty: Option<&str>, parent: Option<Option<&str>>, author: &str, now: Timestamp) -> Result<()> {
+        let issue = self.issue(key)?;
+        let k = issue.key.clone();
+        let project = self.projects.get(&k.project).ok_or_else(|| ModelError::NoSuchProject(k.project.to_string()))?;
+        let was_subtask = self.is_subtask(issue);
+        let is_epic = |name: &str| name.eq_ignore_ascii_case("Epic");
+        let new_type = match ty.map(str::trim) {
+            Some(t) => project
+                .issue_types
+                .iter()
+                .find(|it| it.name.eq_ignore_ascii_case(t))
+                .ok_or_else(|| ModelError::Invalid(format!("project {} has no issue type {}", project.key, clip(t, 40))))?
+                .clone(),
+            None => project
+                .issue_types
+                .iter()
+                .find(|it| it.name.eq_ignore_ascii_case(&issue.issue_type))
+                .cloned()
+                .unwrap_or(IssueType { name: issue.issue_type.clone(), subtask: was_subtask }),
+        };
+        let new_parent: Option<IssueKey> = match parent {
+            Some(Some(p)) if !p.trim().is_empty() => Some(self.issue(p.trim())?.key.clone()),
+            Some(_) => None,
+            None if (was_subtask && !new_type.subtask) || is_epic(&new_type.name) => None,
+            None => issue.parent.clone(),
+        };
+        let name = &new_type.name;
+        if is_epic(name) && new_parent.is_some() {
+            return Err(ModelError::Invalid(format!("an {name} can't have a parent")));
+        }
+        if new_type.subtask && new_parent.is_none() {
+            return Err(ModelError::Invalid(format!("a {name} needs a parent issue")));
+        }
+        if let Some(p) = &new_parent {
+            if p == &k {
+                return Err(ModelError::Invalid("an issue can't be its own parent".into()));
+            }
+            let pi = self.issues.get(p).ok_or_else(|| ModelError::NoSuchIssue(p.to_string()))?;
+            if self.is_subtask(pi) {
+                return Err(ModelError::Invalid(format!("{p} is a sub-task: it can't be a parent")));
+            }
+            if new_type.subtask && (is_epic(&pi.issue_type) || p.project != k.project) {
+                return Err(ModelError::Invalid(format!("a {name}'s parent must be a standard issue in project {}", k.project)));
+            }
+            // Walk up from the new parent (bounded: corrupt files may hold cycles already).
+            let mut at = pi.parent.clone();
+            let mut steps = 0usize;
+            while let Some(a) = at {
+                if a == k {
+                    return Err(ModelError::Invalid(format!("{p} is below {k}: that would make a cycle")));
+                }
+                steps = steps.saturating_add(1);
+                if steps > self.issues.len() {
+                    break;
+                }
+                at = self.issues.get(&a).and_then(|i| i.parent.clone());
+            }
+        }
+        let children: Vec<&Issue> = self.issues.values().filter(|i| i.parent.as_ref() == Some(&k)).collect();
+        if new_type.subtask && !children.is_empty() {
+            return Err(ModelError::Invalid(format!("{k} has child issues: a {name} can't have children")));
+        }
+        if is_epic(name) && children.iter().any(|c| self.is_subtask(c)) {
+            return Err(ModelError::Invalid(format!("{k} has sub-tasks: an {name} can't have sub-tasks")));
+        }
+        let sprint = if new_type.subtask {
+            new_parent.as_ref().and_then(|p| self.issues.get(p)).and_then(|p| p.sprint).filter(|id| self.sprints.contains_key(id))
+        } else {
+            issue.sprint
+        };
+        let old_sprint = issue.sprint;
+        let from_sprint = old_sprint.and_then(|id| self.sprints.get(&id)).map(|s| s.name.clone());
+        let to_sprint = sprint.and_then(|id| self.sprints.get(&id)).map(|s| s.name.clone());
+        let i = self.issues.get_mut(&k).ok_or_else(|| ModelError::NoSuchIssue(k.to_string()))?;
+        let from_type = std::mem::replace(&mut i.issue_type, new_type.name.clone());
+        let from_parent = std::mem::replace(&mut i.parent, new_parent.clone());
+        i.sprint = sprint;
+        let changed = from_type != i.issue_type || from_parent != i.parent || old_sprint != sprint;
+        if changed {
+            i.updated = now;
+        }
+        self.record(
+            &k,
+            author,
+            now,
+            vec![
+                ("issuetype", Some(from_type), Some(new_type.name)),
+                ("parent", from_parent.map(|p| p.to_string()), new_parent.map(|p| p.to_string())),
+                ("sprint", from_sprint, to_sprint),
+            ],
+        );
+        Ok(())
+    }
+
+    /// Deletes an issue, its sub-tasks, and links pointing at them; child issues that aren't
+    /// sub-tasks (an epic's stories) stay, without a parent. Issues that lose a link or
+    /// their parent record it (`link` / `parent`) by `author`.
+    pub fn delete_issue(&mut self, key: &str, author: &str, now: Timestamp) -> Result<Vec<IssueKey>> {
         let k = self.issue(key)?.key.clone();
-        let mut gone: Vec<IssueKey> = self.issues.values().filter(|i| i.parent.as_ref() == Some(&k)).map(|i| i.key.clone()).collect();
+        // Sub-tasks go with their parent; other children (an epic's issues) stay and lose it.
+        let mut gone: Vec<IssueKey> =
+            self.issues.values().filter(|i| i.parent.as_ref() == Some(&k) && self.is_subtask(i)).map(|i| i.key.clone()).collect();
         gone.push(k);
         for g in &gone {
             self.issues.remove(g);
         }
+        let mut changes: Vec<(IssueKey, Vec<(&str, Option<String>, Option<String>)>)> = Vec::new();
         for i in self.issues.values_mut() {
-            i.links.retain(|l| !gone.contains(&l.target));
-            if i.parent.as_ref().is_some_and(|p| gone.contains(p)) {
-                i.parent = None;
+            let mut items = Vec::new();
+            i.links.retain(|l| {
+                let keep = !gone.contains(&l.target);
+                if !keep {
+                    items.push(("link", Some(format!("This issue {} {}", l.kind.outward(), l.target)), None));
+                }
+                keep
+            });
+            if let Some(p) = i.parent.take_if(|p| gone.contains(p)) {
+                items.push(("parent", Some(p.to_string()), None));
             }
+            if !items.is_empty() {
+                i.updated = now;
+                changes.push((i.key.clone(), items));
+            }
+        }
+        for (k, items) in changes {
+            self.record(&k, author, now, items);
         }
         Ok(gone)
     }

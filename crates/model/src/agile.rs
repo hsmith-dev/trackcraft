@@ -14,7 +14,8 @@
 //!   new sprint, or the backlog;
 //! - sub-tasks follow their parent: they take the parent's sprint when created or when the
 //!   parent moves, and can't be moved on their own;
-//! - a closed sprint can't take issues, change dates, or be deleted.
+//! - a closed sprint can't take issues, change dates, or be deleted;
+//! - a sprint can't complete while a Done-category issue in it has sub-tasks that aren't done.
 //!
 //! Sprint membership changes are history-worthy (field `sprint`, sprint names as values);
 //! rank changes are not.
@@ -92,13 +93,14 @@ pub struct Completion {
     pub to: Option<Id>,
 }
 
-/// Changes to a sprint's fields (each `None` = keep).
+/// Changes to a sprint's fields (each `None` = keep). Dates are `Some(None)` to clear them,
+/// which only a future sprint allows (an active sprint needs both; a closed one keeps its own).
 #[derive(Debug, Clone, Default)]
 pub struct SprintEdit {
     pub name: Option<String>,
     pub goal: Option<String>,
-    pub start: Option<Timestamp>,
-    pub end: Option<Timestamp>,
+    pub start: Option<Option<Timestamp>>,
+    pub end: Option<Option<Timestamp>>,
 }
 
 fn goal(g: &str) -> Result<String> {
@@ -337,8 +339,11 @@ impl Workspace {
         }
         let name = edit.name.as_deref().map(|n| title(n, "the sprint name")).transpose()?;
         let goal = edit.goal.as_deref().map(goal).transpose()?;
-        let start = edit.start.or(s.start);
-        let end = edit.end.or(s.end);
+        if s.state != SprintState::Future && (edit.start == Some(None) || edit.end == Some(None)) {
+            return Err(ModelError::Invalid(format!("{} is {}: only a future sprint's dates can be cleared", s.name, s.state.name())));
+        }
+        let start = edit.start.unwrap_or(s.start);
+        let end = edit.end.unwrap_or(s.end);
         check_dates(start, end)?;
         let s = self.sprints.get_mut(&id).ok_or_else(|| no_sprint(id))?;
         if let Some(n) = name {
@@ -417,7 +422,8 @@ impl Workspace {
             .is_some_and(|t| t.subtask)
     }
 
-    pub fn start_sprint(&mut self, id: Id, start: Timestamp, end: Timestamp, goal_text: Option<&str>) -> Result<()> {
+    /// Starts a future sprint, optionally renaming it and setting its goal at the same time.
+    pub fn start_sprint(&mut self, id: Id, name: Option<&str>, start: Timestamp, end: Timestamp, goal_text: Option<&str>) -> Result<()> {
         let s = self.sprint(id)?;
         if s.state != SprintState::Future {
             return Err(ModelError::Invalid(format!("{} is {}: only a future sprint can start", s.name, s.state.name())));
@@ -431,7 +437,11 @@ impl Workspace {
             return Err(ModelError::Invalid(format!("{} has no open issues: add an issue that isn't done before starting it", s.name)));
         }
         let goal = goal_text.map(goal).transpose()?;
+        let name = name.map(|n| title(n, "the sprint name")).transpose()?;
         let s = self.sprints.get_mut(&id).ok_or_else(|| no_sprint(id))?;
+        if let Some(n) = name {
+            s.name = n;
+        }
         s.state = SprintState::Active;
         s.start = Some(start);
         s.end = Some(end);
@@ -443,10 +453,34 @@ impl Workspace {
 
     /// Completes the active sprint `id`. Every issue in it keeps the sprint in `past_sprints`;
     /// Done-category issues stay there, open ones move to `to`.
+    ///
+    /// Refused while a Done-category issue in the sprint has sub-tasks that aren't done: the
+    /// parent would stay with the closed sprint while its open sub-tasks moved on (Atlassian's
+    /// public docs for completing a sprint require those sub-tasks to be done first).
     pub fn complete_sprint(&mut self, id: Id, to: MoveOpenTo, author: &str, now: Timestamp) -> Result<Completion> {
         let s = self.sprint(id)?;
         if s.state != SprintState::Active {
             return Err(ModelError::Invalid(format!("{} is {}: only the active sprint can be completed", s.name, s.state.name())));
+        }
+        let mut blocked: Vec<String> = Vec::new();
+        for parent in self.issues.values().filter(|i| i.sprint == Some(id) && self.status_category(i) == StatusCategory::Done) {
+            let open: Vec<String> = self
+                .issues
+                .values()
+                .filter(|c| c.parent.as_ref() == Some(&parent.key) && self.is_subtask(c) && self.status_category(c) != StatusCategory::Done)
+                .map(|c| c.key.to_string())
+                .collect();
+            if !open.is_empty() {
+                blocked.push(format!("{} ({})", parent.key, open.join(", ")));
+            }
+        }
+        if !blocked.is_empty() {
+            let shown = blocked.iter().take(10).cloned().collect::<Vec<_>>().join("; ");
+            let more = if blocked.len() > 10 { format!(" and {} more", blocked.len().saturating_sub(10)) } else { String::new() };
+            return Err(ModelError::Invalid(format!(
+                "{} can't be completed: done issues have open sub-tasks: {shown}{more}. Finish the sub-tasks or reopen the parent first",
+                s.name
+            )));
         }
         let (project, name) = (s.project.clone(), s.name.clone());
         let target = match to {
