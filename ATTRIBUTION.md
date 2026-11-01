@@ -8,6 +8,20 @@ Generated-in-code content is original and has no file to list: the sample worksp
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
+| `assets/app-icon/trackcraft.svg` | TrackCraft contributors | Original work (drawn for this repository) | MIT OR Apache-2.0 | The app icon: the in-app mark (`app_mark` in `crates/ui-egui/src/icons.rs`) as artwork. Source of every file below |
+| `assets/app-icon/hicolor/scalable/apps/io.github.hsmith_dev.trackcraft.svg` | TrackCraft contributors | Copy of `trackcraft.svg` (`packaging/icons.sh`) | MIT OR Apache-2.0 | Linux hicolor scalable icon |
+| `assets/app-icon/trackcraft-1024.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` (`packaging/icons.sh`) | MIT OR Apache-2.0 | 1024 px master |
+| `assets/app-icon/trackcraft-macos-512.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | macOS window/Dock icon (Apple icon grid), embedded by `apps/trackcraft` |
+| `assets/app-icon/trackcraft.icns` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` + `iconutil` | MIT OR Apache-2.0 | macOS app bundle icon |
+| `assets/app-icon/trackcraft.ico` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Windows .exe and installer icon (16–256 px) |
+| `assets/app-icon/hicolor/16x16/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/24x24/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/32x32/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/48x48/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/64x64/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/128x128/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
+| `assets/app-icon/hicolor/256x256/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon; window icon on Windows/Linux |
+| `assets/app-icon/hicolor/512x512/apps/io.github.hsmith_dev.trackcraft.png` | TrackCraft contributors | Rendered from `trackcraft.svg` by `cargo xtask icons` | MIT OR Apache-2.0 | Linux hicolor icon |
 
 ## Fonts embedded at build time (not in this repository)
 

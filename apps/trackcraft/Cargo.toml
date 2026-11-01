@@ -24,5 +24,9 @@ png = "0.18"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd.workspace = true
 
+[build-dependencies]
+# Icon + VERSIONINFO for the .exe; build.rs only uses it when the target is Windows.
+winresource = "0.1"
+
 [lints]
 workspace = true

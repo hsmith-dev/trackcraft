@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=TrackCraft
+GenericName=Issue Tracker
+Comment=Track issues on boards and backlogs, and write a team wiki
+Exec=trackcraft %f
+TryExec=trackcraft
+Icon=io.github.hsmith_dev.trackcraft
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.hsmith_dev.trackcraft
+Categories=Office;ProjectManagement;
+Keywords=issue;tracker;bug;board;kanban;backlog;sprint;wiki;project;
+MimeType=application/x-trackcraft;

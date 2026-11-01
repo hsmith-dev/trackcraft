@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- shared-mime-info type for TrackCraft workspace files: UTF-8 JSON whose envelope starts with
+     "format": "trackcraft" (crates/store). Installed as
+     /usr/share/mime/packages/io.github.hsmith_dev.trackcraft.xml. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-trackcraft">
+    <comment>TrackCraft workspace</comment>
+    <sub-class-of type="application/json"/>
+    <generic-icon name="x-office-document"/>
+    <glob pattern="*.track"/>
+    <magic priority="60">
+      <match type="string" value="&quot;format&quot;: &quot;trackcraft&quot;" offset="0:64"/>
+      <match type="string" value="&quot;format&quot;:&quot;trackcraft&quot;" offset="0:64"/>
+    </magic>
+  </mime-type>
+</mime-info>

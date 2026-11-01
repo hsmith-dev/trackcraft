@@ -446,7 +446,15 @@ fn main() -> std::process::ExitCode {
         None => None,
     };
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("TrackCraft").with_inner_size([1360.0, 860.0]).with_min_inner_size([900.0, 560.0]),
+        viewport: window_icon(
+            egui::ViewportBuilder::default()
+                .with_title("TrackCraft")
+                // Wayland app id = the desktop entry name (packaging/linux), so the shell matches
+                // the window to its launcher and icon.
+                .with_app_id(APP_ID)
+                .with_inner_size([1360.0, 860.0])
+                .with_min_inner_size([900.0, 560.0]),
+        ),
         ..Default::default()
     };
     let mut app = App {
@@ -486,9 +494,31 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+/// Reverse-DNS application id: the desktop entry, AppStream id and macOS bundle id
+/// (packaging/linux, packaging/macos/Info.plist.in).
+const APP_ID: &str = "io.github.hsmith_dev.trackcraft";
+
+/// The window/taskbar/Dock icon (assets/app-icon; macOS gets the variant on Apple's icon grid).
+/// A PNG that fails to decode leaves the platform default rather than failing start-up.
+fn window_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    #[cfg(target_os = "macos")]
+    const PNG: &[u8] = include_bytes!("../../../assets/app-icon/trackcraft-macos-512.png");
+    #[cfg(not(target_os = "macos"))]
+    const PNG: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/io.github.hsmith_dev.trackcraft.png");
+    match eframe::icon_data::from_png_bytes(PNG) {
+        Ok(icon) => viewport.with_icon(icon),
+        Err(_) => viewport,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_icon_decodes() {
+        assert!(window_icon(egui::ViewportBuilder::default()).icon.is_some());
+    }
 
     fn args(a: &[&str]) -> Result<Args, String> {
         parse_args(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>(), None)

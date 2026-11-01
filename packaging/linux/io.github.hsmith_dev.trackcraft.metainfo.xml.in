@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (software centres, Flathub). Template: package.sh and the Flatpak
+     manifest substitute @VERSION@ and @DATE@ from Cargo.toml and the build date. -->
+<component type="desktop-application">
+  <id>io.github.hsmith_dev.trackcraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>TrackCraft</name>
+  <summary>Track issues on boards and backlogs, and write a team wiki</summary>
+  <developer id="io.github.hsmith_dev">
+    <name>TrackCraft contributors</name>
+  </developer>
+  <description>
+    <p>
+      TrackCraft is a fast, open-source issue tracker and team wiki in one workspace: projects, issues, workflows, boards, backlogs and sprints with a JQL-style search, next to spaces of pages with version history, linked to each other.
+    </p>
+    <p>
+      A workspace is a single .track file that works offline. The same workspace can be shared with a team through the self-hosted TrackCraft server, which also answers a subset of the Jira Cloud and Confluence Cloud REST APIs for existing scripts. AI agents can drive it over MCP.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.hsmith_dev.trackcraft.desktop</launchable>
+  <icon type="stock">io.github.hsmith_dev.trackcraft</icon>
+  <!-- Only url types known to appstream 0.15 (Ubuntu 22.04, where CI validates): no vcs-browser. -->
+  <url type="homepage">https://github.com/hsmith-dev/trackcraft</url>
+  <url type="bugtracker">https://github.com/hsmith-dev/trackcraft/issues</url>
+  <url type="help">https://github.com/hsmith-dev/trackcraft</url>
+  <categories>
+    <category>Office</category>
+    <category>ProjectManagement</category>
+    <category>Development</category>
+  </categories>
+  <keywords>
+    <keyword>issue tracker</keyword>
+    <keyword>kanban</keyword>
+    <keyword>backlog</keyword>
+    <keyword>wiki</keyword>
+    <keyword>project management</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#9fded2</color>
+    <color type="primary" scheme_preference="dark">#0e7a6b</color>
+  </branding>
+  <requires>
+    <display_length compare="ge">760</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <provides>
+    <binary>trackcraft</binary>
+    <binary>trackcraft-cli</binary>
+    <mediatype>application/x-trackcraft</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

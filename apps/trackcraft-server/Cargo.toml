@@ -11,5 +11,9 @@ description = "TrackCraft team server (binary)"
 trackcraft-server-lib.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "time", "sync"] }
 
+[build-dependencies]
+# Icon + VERSIONINFO for the .exe; build.rs only uses it when the target is Windows.
+winresource = "0.1"
+
 [lints]
 workspace = true
