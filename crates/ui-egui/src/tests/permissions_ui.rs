@@ -136,6 +136,10 @@ fn a_viewer_sees_disabled_controls() {
     assert!(h.get_by_role_and_label(Role::ComboBox, "Sam Okafor").accesskit_node().is_disabled());
     nav(&mut h, json!({"view": "projectSettings", "project": "LUME"}));
     assert!(h.get_by_label("Private").accesskit_node().is_disabled());
+    // The top bar's Create and the board's Create issue (gated when merging UI-37).
+    nav(&mut h, json!({"view": "board", "project": "LUME"}));
+    assert!(h.get_by_label("+ Create").accesskit_node().is_disabled(), "top-bar Create on a project the viewer can't create in");
+    assert!(h.get_by_label("+ Create issue").accesskit_node().is_disabled(), "board Create issue for a viewer");
     // Both themes render.
     h.state_mut().dark = Some(true);
     h.run_steps(2);

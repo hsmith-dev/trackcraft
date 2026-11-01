@@ -148,7 +148,11 @@ pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKe
     // pushing them off screen (UI-6).
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("+ Create issue").clicked() {
+            // UI-37: off for people who can't create issues here.
+            let allowed = crate::widgets::can(app, "issue.create", &json!({"project": key.to_string()}));
+            let create = ui.add_enabled(allowed, egui::Button::new("+ Create issue"));
+            let create = if allowed { create } else { create.on_disabled_hover_text(crate::widgets::denied("create issues in this project")) };
+            if create.clicked() {
                 app.push(Action::OpenCreate(Some(key.to_string())));
             }
             if let Some((id, name)) = active

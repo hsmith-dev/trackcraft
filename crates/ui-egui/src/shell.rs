@@ -68,8 +68,13 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                     app.push(Action::Search(app.jql.clone()));
                 }
                 let create = egui::Button::new(RichText::new("+ Create").color(t.on_accent).strong()).fill(t.accent);
-                if ui.add(create).on_hover_text("Create an issue (C)").clicked() {
-                    app.push(Action::OpenCreate(current_project(app)));
+                // UI-37: off when the current project refuses creating issues (outside a project
+                // the dialog's own Create button checks the chosen project).
+                let project = current_project(app);
+                let allowed = project.as_ref().is_none_or(|p| crate::widgets::can(app, "issue.create", &serde_json::json!({"project": p})));
+                let hover = if allowed { "Create an issue (C)".to_string() } else { crate::widgets::denied("create issues in this project") };
+                if ui.add_enabled(allowed, create).on_hover_text(&hover).on_disabled_hover_text(&hover).clicked() {
+                    app.push(Action::OpenCreate(project));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let me = app.session.user.clone();
