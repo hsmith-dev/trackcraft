@@ -79,6 +79,8 @@ pub(crate) fn view_keys(app: &mut TrackApp, i: &mut InputState) {
             }
         }
         View::Home | View::PageHistory(_) => {}
+        View::Backlog(p) => crate::backlog::keys(app, i, &p), // UI-11
+        View::SprintBoard(p, _) => board_keys(app, i, &p),    // UI-12
     }
 }
 

@@ -1,12 +1,14 @@
 //! Interface tests (egui_kittest): every screen renders in both themes, and UI actions go
 //! through commands. Shared helpers live here; tests go in the file for their area.
 
+mod backlog; // UI-11
 mod board;
 mod guard;
 mod issue;
 mod keys;
 mod list;
 mod nav;
+mod sprints; // UI-12
 mod wiki;
 
 use egui_kittest::Harness;

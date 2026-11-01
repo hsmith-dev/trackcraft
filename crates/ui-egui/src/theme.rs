@@ -83,6 +83,18 @@ impl Tokens {
         }
     }
 
+    /// A status category's colour in progress bars (sprint headers): grey, amber, green.
+    pub fn progress(&self, c: StatusCategory) -> Color32 {
+        match (c, self.dark) {
+            (StatusCategory::ToDo, false) => hex(0xBCC2B9),
+            (StatusCategory::ToDo, true) => hex(0x56605B),
+            (StatusCategory::InProgress, false) => hex(0xE2A33A),
+            (StatusCategory::InProgress, true) => hex(0xD99A35),
+            (StatusCategory::Done, false) => hex(0x4E9A55),
+            (StatusCategory::Done, true) => hex(0x6CBF72),
+        }
+    }
+
     /// Colour for a priority rank (1 = highest … 5 = lowest).
     pub fn priority(&self, rank: i64) -> Color32 {
         match rank {

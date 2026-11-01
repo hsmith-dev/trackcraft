@@ -16,14 +16,19 @@ pub enum View {
     Issue(IssueKey),
     Page(Id),
     PageHistory(Id),
+    /// A project's backlog: open sprints, then the Backlog section (UI-11).
+    Backlog(ProjectKey),
+    /// A project's board showing only one sprint's issues (UI-12).
+    SprintBoard(ProjectKey, Id),
 }
 
 /// The view a `ui.navigate` request names:
-/// `{"view": "home"|"issues"|"board"|"issue"|"page"|"history", "project"|"key"|"id": …}`.
-/// Pages must exist; issue and board keys must parse.
+/// `{"view": "home"|"issues"|"board"|"issue"|"page"|"history"|"backlog", "project"|"key"|"id": …}`.
+/// Pages must exist; issue and board keys must parse. A board takes `"sprint": "active" | 7`
+/// (the active sprint falls back to the whole board when none is running).
 pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
     let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-    Ok(match s("view").as_str() {
+    let v = match s("view").as_str() {
         "home" => View::Home,
         "issues" => View::Issues,
         "board" => View::Board(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?),
@@ -33,6 +38,26 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
             ws.page(id).map_err(|e| e.to_string())?;
             if s("view") == "page" { View::Page(id) } else { View::PageHistory(id) }
         }
+        "backlog" => View::Backlog(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?), // UI-11
         other => return Err(format!("unknown view {other}")),
+    };
+    // UI-12: a board with `"sprint"` shows only that sprint.
+    Ok(match v {
+        View::Board(k) => match p.get("sprint") {
+            None | Some(Value::Null) => View::Board(k),
+            Some(Value::String(a)) if a.eq_ignore_ascii_case("active") => match ws.active_sprint(&k) {
+                Some(sp) => View::SprintBoard(k, sp.id),
+                None => View::Board(k),
+            },
+            Some(sp) => {
+                let id = Id(sp.as_u64().ok_or("\"sprint\" is \"active\" or a sprint id")?);
+                let sprint = ws.sprint(id).map_err(|e| e.to_string())?;
+                if sprint.project != k {
+                    return Err(format!("sprint {id} is not in project {k}"));
+                }
+                View::SprintBoard(k, id)
+            }
+        },
+        v => v,
     })
 }
