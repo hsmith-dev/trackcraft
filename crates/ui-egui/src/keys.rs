@@ -156,6 +156,8 @@ pub(crate) enum Act {
     GoSpace,
     /// Listed in the overlay, handled where the widget lives (Escape, header clicks).
     Doc,
+    /// Undo a Back (UI-8).
+    Forward,
 }
 
 #[derive(Debug, Clone)]
@@ -218,6 +220,7 @@ pub(crate) const UI_BINDINGS: &[(Scope, &str, &str, Act)] = &[
     (Scope::Board, "Shift+Right / ]", "Move the card to the next status", Act::BoardNext),
     (Scope::Board, "Shift+Left / [", "Move the card to the previous status", Act::BoardPrev),
     (Scope::Issue, "Escape", "Cancel editing", Act::Doc),
+    (Scope::Global, "Alt+Right", "Forward", Act::Forward), // UI-8
 ];
 
 /// The keymap: every registry shortcut, then the UI-only bindings.
@@ -266,6 +269,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Issue(_) => Some(Scope::Issue),
         View::Page(id) if !app.page_edit.as_ref().is_some_and(|e| e.id == *id) => Some(Scope::Page),
         View::Page(_) | View::Home | View::PageHistory(_) => None,
+        View::Projects | View::Spaces => None, // UI-8
     }
 }
 
@@ -412,6 +416,7 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
             }
         }
         Act::Doc => {}
+        Act::Forward => app.push(Action::Forward), // UI-8
     }
 }
 

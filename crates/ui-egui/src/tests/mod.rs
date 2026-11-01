@@ -8,6 +8,7 @@ mod issue;
 mod keys;
 mod list;
 mod nav;
+mod nav_history; // UI-8
 mod sprints; // UI-12
 mod wiki;
 

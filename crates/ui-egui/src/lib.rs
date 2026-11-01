@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod backlog; // UI-11
+mod directory; // UI-8
 mod guard;
 pub mod icons;
 mod issues;
@@ -60,6 +61,8 @@ pub(crate) enum Action {
     Toast(String),
     /// Close the create dialog (Escape or a backdrop click): asks first if it has typed text.
     CloseCreate,
+    /// Undo a Back: the next view on the forward stack (UI-8).
+    Forward,
 }
 
 /// What to do after a successful command.
@@ -68,6 +71,7 @@ pub(crate) enum Then {
     Nothing,
     Toast(String),
     /// Open the issue whose key is in the result's `key`.
+    #[allow(dead_code)] // UI-8: the palette now opens the create dialog instead; kept for callers that run issue.create.
     OpenIssue,
     /// Leave page editing.
     EndPageEdit,
@@ -188,6 +192,11 @@ pub struct TrackApp {
     pub(crate) backlog: backlog::BacklogUi,
     /// The open sprint dialog: start, complete, create, edit or delete (UI-12).
     pub(crate) sprint_dialog: Option<sprints::SprintDialog>,
+    // UI-8: views a Back left (most recent last; a new navigation clears it), the last few
+    // issues/pages/boards visited (most recent first), and the sidebar/directory state.
+    forward: Vec<View>,
+    pub(crate) recent: Vec<View>,
+    pub(crate) side: directory::SideUi,
 }
 
 impl TrackApp {
@@ -232,6 +241,9 @@ impl TrackApp {
             chord: None,
             backlog: backlog::BacklogUi::default(), // UI-11
             sprint_dialog: None,                    // UI-12
+            forward: vec![],                        // UI-8
+            recent: vec![],                         // UI-8
+            side: directory::SideUi::default(),     // UI-8
         }
     }
 
@@ -270,11 +282,35 @@ impl TrackApp {
         if self.back.len() > 100 {
             self.back.remove(0);
         }
+        self.forward.clear(); // UI-8
         self.left_view();
+    }
+
+    // UI-8: navigation history.
+    /// There is a view to go back to.
+    pub(crate) fn can_back(&self) -> bool {
+        !self.back.is_empty()
+    }
+
+    /// A Back can be undone.
+    pub(crate) fn can_forward(&self) -> bool {
+        !self.forward.is_empty()
+    }
+
+    /// Remembers the current view among the recent destinations (issues, pages, boards).
+    fn visited(&mut self) {
+        if !matches!(self.view, View::Issue(_) | View::Page(_) | View::Board(_) | View::Backlog(_) | View::SprintBoard(..)) {
+            return;
+        }
+        let v = self.view.clone();
+        self.recent.retain(|r| *r != v);
+        self.recent.insert(0, v);
+        self.recent.truncate(directory::RECENT);
     }
 
     /// Clears the per-view state after the view changed (the page editor survives only on its page).
     fn left_view(&mut self) {
+        self.visited(); // UI-8
         self.issue_ui = IssueUi::default();
         self.history_preview = None;
         if !self.page_edit.as_ref().is_some_and(|e| self.view == View::Page(e.id)) {
@@ -329,7 +365,8 @@ impl TrackApp {
             || self.new_page.is_some()
             || self.page_labels.is_some()
             || self.sprint_dialog.is_some()
-            || self.backlog.move_pick.is_some();
+            || self.backlog.move_pick.is_some()
+            || self.side.dialog.is_some(); // UI-8
         let modal = dialog || self.help || guarding;
         let gate = keys::Gate { typing, modal, help_only: self.help && !dialog && !guarding, guarding };
         let injected = std::mem::take(&mut self.injected);
@@ -365,6 +402,7 @@ impl TrackApp {
                     self.page_labels = None;
                     self.sprint_dialog = None;
                     self.backlog.move_pick = None;
+                    self.side.dialog = None; // UI-8
                     self.help = false;
                 } else if matches!(self.view, View::Issue(_)) {
                     keys::cancel_issue_edits(self);
@@ -403,6 +441,8 @@ impl TrackApp {
                 View::PageHistory(id) => wiki::history(self, ui, &t, id),
                 View::Backlog(p) => backlog::backlog(self, ui, &t, &p),                 // UI-11
                 View::SprintBoard(p, id) => issues::sprint_board(self, ui, &t, &p, id), // UI-12
+                View::Projects => directory::projects(self, ui, &t),                    // UI-8
+                View::Spaces => directory::spaces(self, ui, &t),                        // UI-8
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -413,6 +453,7 @@ impl TrackApp {
         guard::dialog(self, ui.ctx(), &t);
         backlog::move_picker(self, ui.ctx(), &t); // UI-11
         sprints::dialog(self, ui.ctx(), &t); // UI-12
+        directory::dialog(self, ui.ctx(), &t); // UI-8
         self.show_toast(ui.ctx(), &t);
         self.apply_pending();
     }
@@ -456,7 +497,19 @@ impl TrackApp {
                 } else if let Some(v) = self.back.pop()
                     && v != self.view
                 {
-                    self.view = v;
+                    self.forward.push(std::mem::replace(&mut self.view, v)); // UI-8
+                    self.left_view();
+                }
+            }
+            // UI-8
+            Action::Forward => {
+                let Some(to) = self.forward.last() else { return };
+                if self.would_lose(to) {
+                    self.hold(Action::Forward);
+                } else if let Some(v) = self.forward.pop()
+                    && v != self.view
+                {
+                    self.back.push(std::mem::replace(&mut self.view, v));
                     self.left_view();
                 }
             }
@@ -572,6 +625,9 @@ impl TrackApp {
     /// - `ui.sprintDialog` `{"kind": "start"|"complete"|"create"|"edit"|"delete", "id": n, "project": "LUME"}`:
     ///   opens a sprint dialog (`create` takes `project`; the others `id`, or `project` for its
     ///   active sprint (complete) or next planned one) (UI-12)
+    /// - `ui.back` · `ui.forward`: walk the navigation history (UI-8; `"force"` as for navigate)
+    /// - `ui.sidebar` `{"filter": "text", "star": "project:LUME"|"space:ENG"|"page:12"|"filter:All issues", "on": bool}`:
+    ///   sets the sidebar filter and/or stars an item (UI-8)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -637,6 +693,24 @@ impl TrackApp {
             "ui.sprintDialog" => {
                 let id = p.get("id").and_then(Value::as_u64).map(Id);
                 self.sprint_dialog = Some(sprints::SprintDialog::open(&self.session, &s("kind"), id, &s("project"))?);
+                Ok(json!({"ok": true}))
+            }
+            // UI-8
+            "ui.back" | "ui.forward" => {
+                let to = if method == "ui.back" { self.back.last() } else { self.forward.last() };
+                let Some(to) = to.cloned() else { return Err("nothing to go back or forward to".into()) };
+                self.leave_for_control(self.would_lose(&to), force)?;
+                self.apply(if method == "ui.back" { Action::Back } else { Action::Forward });
+                Ok(json!({"ok": true}))
+            }
+            "ui.sidebar" => {
+                if let Some(f) = p.get("filter").and_then(Value::as_str) {
+                    self.side.filter = f.chars().take(200).collect();
+                }
+                if let Some(star) = p.get("star").and_then(Value::as_str) {
+                    let on = p.get("on").and_then(Value::as_bool).unwrap_or(true);
+                    self.side.set_star(directory::Star::parse(star).ok_or("\"star\" is kind:id (project, space, page or filter)")?, on);
+                }
                 Ok(json!({"ok": true}))
             }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),

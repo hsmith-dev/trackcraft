@@ -20,6 +20,10 @@ pub enum View {
     Backlog(ProjectKey),
     /// A project's board showing only one sprint's issues (UI-12).
     SprintBoard(ProjectKey, Id),
+    /// The searchable table of every project (UI-8).
+    Projects,
+    /// The searchable table of every space (UI-8).
+    Spaces,
 }
 
 /// The view a `ui.navigate` request names:
@@ -39,6 +43,8 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
             if s("view") == "page" { View::Page(id) } else { View::PageHistory(id) }
         }
         "backlog" => View::Backlog(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?), // UI-11
+        "projects" => View::Projects,                                                                                  // UI-8
+        "spaces" => View::Spaces,                                                                                      // UI-8
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.
