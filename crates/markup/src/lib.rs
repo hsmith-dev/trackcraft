@@ -9,6 +9,7 @@
 //! Parsing is hostile-input safe: nesting is bounded by [`MAX_DEPTH`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod diff;
 mod md;
 
 use serde::{Deserialize, Serialize};
@@ -126,6 +127,26 @@ impl Doc {
             block_md(b, "", &mut out);
             out.push('\n');
         }
+        out.trim_end().to_string()
+    }
+}
+
+impl Block {
+    /// The block's text (no markup), lines separated by newlines, without a trailing newline.
+    /// Inline comment anchors count characters in this text.
+    pub fn plain_text(&self) -> String {
+        let mut out = String::new();
+        block_text(self, &mut out);
+        if out.ends_with('\n') {
+            out.pop();
+        }
+        out
+    }
+
+    /// The block as Markdown (one unit of a version diff).
+    pub fn to_markdown(&self) -> String {
+        let mut out = String::new();
+        block_md(self, "", &mut out);
         out.trim_end().to_string()
     }
 }

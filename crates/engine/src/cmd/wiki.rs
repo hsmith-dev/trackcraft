@@ -1,7 +1,12 @@
-//! Wiki commands: spaces, pages, the page tree and version history.
+//! Wiki commands: spaces, pages, the page tree and version history; page comments, version
+//! diffs and templates live in the submodules.
+
+mod comments;
+mod diff;
+mod templates;
 
 use serde_json::{Value, json};
-use trackcraft_model::{NewPage, PageEdit};
+use trackcraft_model::{CopyPage, NewPage, PageEdit, Placement};
 
 use crate::{CmdResult, CommandSpec, Session, json as view, params};
 
@@ -9,18 +14,30 @@ use crate::{CmdResult, CommandSpec, Session, json as view, params};
 const MAX_PAGE_RESULTS: usize = 1000;
 
 pub fn commands() -> Vec<CommandSpec> {
+    let mut v = base_commands();
+    v.extend(comments::commands());
+    v.extend(diff::commands());
+    v.extend(templates::commands());
+    v
+}
+
+fn base_commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("space.create", "Create Space", "Spaces", space_create).params(r#"{"key": "ENG", "name": "Engineering"}"#),
         CommandSpec::new("space.list", "All Spaces", "Spaces", space_list).query(),
         CommandSpec::new("space.tree", "Page Tree", "Space › Sidebar", space_tree).params(r#"{"key": "ENG"}"#).query(),
         CommandSpec::new("page.create", "Create Page", "Page", page_create)
             .key("C")
-            .params(r#"{"space": "ENG", "title": "…", "parent": 12 (optional; default the space home), "body": "Markdown or ADF"}"#),
+            .params(r#"{"space": "ENG", "title": "…" (optional with a template that suggests one), "parent": 12 (optional; default the space home), "body": "Markdown or ADF" (optional), "template": "meeting-notes" or a template id (optional; fills title and body)}"#),
         CommandSpec::new("page.get", "View Page", "Page", page_get).params(r#"{"id": 12}"#).query(),
         CommandSpec::new("page.edit", "Edit Page", "Page", page_edit)
             .key("E")
             .params(r#"{"id": 12, "title": "…", "body": "…", "baseVersion": 3, "message": "what changed" (each optional but one of title/body)}"#),
-        CommandSpec::new("page.move", "Move Page", "Page › More", page_move).params(r#"{"id": 12, "parent": 4}"#),
+        CommandSpec::new("page.move", "Move Page", "Page › More", page_move)
+            .params(r#"{"id": 12, "parent": 4 (optional with before/after), "before": 7 or "after": 7 (a sibling id; optional)}"#),
+        CommandSpec::new("page.copy", "Copy Page", "Page › More", page_copy).params(
+            r#"{"id": 12, "parent": 4 (optional; default beside the original), "space": "TEAM" (optional; its home page), "title": "…" (optional; default the original + " (copy)"), "children": false}"#,
+        ),
         CommandSpec::new("page.delete", "Delete Page", "Page › More", page_delete).params(r#"{"id": 12}"#),
         CommandSpec::new("page.labels", "Edit Labels", "Page", page_labels).key("L").params(r#"{"id": 12, "labels": ["howto"]}"#),
         CommandSpec::new("page.history", "Page History", "Page › More", page_history).params(r#"{"id": 12}"#).query(),
@@ -50,13 +67,25 @@ fn space_tree(s: &mut Session, p: &Value) -> CmdResult {
 }
 
 fn page_create(s: &mut Session, p: &Value) -> CmdResult {
-    let new = NewPage {
-        space: params::str(p, "space")?.to_string(),
-        parent: params::opt_id(p, "parent")?,
-        title: params::str(p, "title")?.to_string(),
-        body: params::opt_doc(p, "body")?.unwrap_or_default(),
-    };
     let (now, me) = (s.now(), s.user.clone());
+    let space = params::str(p, "space")?.to_string();
+    let template = match p.get("template") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(t)) => Some(s.ws.resolve_template(t, &space, now).map_err(err)?),
+        Some(Value::Number(n)) => Some(s.ws.resolve_template(&n.to_string(), &space, now).map_err(err)?),
+        Some(_) => return Err("\"template\" must be a template id or name".into()),
+    };
+    let title = match (params::opt_str(p, "title")?, &template) {
+        (Some(t), _) => t.to_string(),
+        (None, Some(t)) if !t.title.trim().is_empty() => t.title.clone(),
+        (None, _) => return Err("missing \"title\"".into()),
+    };
+    let body = match (params::opt_doc(p, "body")?, template) {
+        (Some(b), _) => b,
+        (None, Some(t)) => t.body,
+        (None, None) => Default::default(),
+    };
+    let new = NewPage { space, parent: params::opt_id(p, "parent")?, title, body };
     let id = s.ws.create_page(new, &me, now).map_err(err)?;
     Ok(json!({"id": id.0}))
 }
@@ -88,8 +117,37 @@ fn page_edit(s: &mut Session, p: &Value) -> CmdResult {
 
 fn page_move(s: &mut Session, p: &Value) -> CmdResult {
     let id = params::id(p, "id")?;
-    s.ws.move_page(id, params::id(p, "parent")?).map_err(err)?;
-    Ok(json!({"moved": id.0}))
+    let parent = params::opt_id(p, "parent")?;
+    let placement = match (params::opt_id(p, "before")?, params::opt_id(p, "after")?) {
+        (Some(_), Some(_)) => return Err("pass either \"before\" or \"after\", not both".into()),
+        (Some(b), None) => Placement::Before(b),
+        (None, Some(a)) => Placement::After(a),
+        (None, None) if parent.is_none() => return Err("missing \"parent\" (or \"before\"/\"after\")".into()),
+        (None, None) => Placement::Last,
+    };
+    s.ws.move_page_to(id, parent, placement).map_err(err)?;
+    let page = s.ws.page(id).map_err(err)?;
+    Ok(json!({"moved": id.0, "parentId": page.parent.map(|i| i.0), "position": page.position}))
+}
+
+fn page_copy(s: &mut Session, p: &Value) -> CmdResult {
+    let children = match p.get("children") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("\"children\" must be true or false".into()),
+    };
+    let req = CopyPage {
+        id: params::id(p, "id")?,
+        parent: params::opt_id(p, "parent")?,
+        space: params::opt_str(p, "space")?.map(str::to_string),
+        title: params::opt_str(p, "title")?.map(str::to_string),
+        children,
+    };
+    let (now, me) = (s.now(), s.user.clone());
+    let id = s.ws.copy_page(req, &me, now).map_err(err)?;
+    let page = s.ws.page(id).map_err(err)?;
+    let copied = s.ws.subtree(id).len();
+    Ok(json!({"id": id.0, "title": page.title, "space": page.space.as_str(), "parentId": page.parent.map(|i| i.0), "copied": copied}))
 }
 
 fn page_delete(s: &mut Session, p: &Value) -> CmdResult {
