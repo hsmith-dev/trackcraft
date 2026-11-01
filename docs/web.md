@@ -1,6 +1,6 @@
 # TrackCraft in the browser
 
-> **Status:** 2026-10-31 · M4.6 — the web client edits server workspaces live (and local ones as before).
+> **Status:** 2026-11-01 · M6.1 — release zip (`packaging/web/package.sh`), checked rendering in headless Chrome; M4.6 — the web client edits server workspaces live (and local ones as before).
 
 `apps/trackcraft-web` runs the same `TrackApp` (`crates/ui-egui`) as the desktop app, compiled to
 WebAssembly and hosted by eframe's `WebRunner` on a `<canvas>` (wgpu: WebGPU where the browser
@@ -26,6 +26,9 @@ The site lands in `dist/web` (`index.html`, `trackcraft-web-<hash>.js`,
 `trackcraft-web-<hash>_bg.wasm`, `_headers`, `.htaccess`). `cargo xtask web` prints these steps
 and succeeds without building when trunk isn't installed. For development,
 `trunk serve` in `apps/trackcraft-web` rebuilds on change at http://127.0.0.1:8772/.
+`packaging/web/package.sh` builds the same site and zips it as `trackcraft-web-<version>.zip`, the
+release asset ([`releasing.md`](releasing.md)). The release WASM is about 13 MB (about 4.7 MB
+zipped); a server or CDN that compresses `.wasm` cuts the download accordingly.
 
 `cargo xtask wasm` (part of `cargo xtask ci`) checks the crate with
 `cargo check --target wasm32-unknown-unknown`. Natively the crate builds a stub binary that only
@@ -104,8 +107,13 @@ token). Changes of state, refused changes and resyncs are toasts (`TrackApp::not
 - **Keyboard:** some browser shortcuts (for example Mod+O in some browsers) may reach the browser
   before the app.
 - **Fonts:** the bundled egui fonts only, as on the desktop (no emoji/CJK glyphs yet).
-- **Not verified in a browser by the agent that built it:** the build is checked for wasm32
-  (`cargo check`/`clippy`), and serving was checked with `curl`; run it in a browser before a
-  release. M4.6 likewise: the sync state machine is tested natively against a fake transport, the
-  ticket route against the real router, but the `fetch`/`EventSource` driver and the dialog have
-  not been run in a browser.
+- **Browser check (M6.1):** the release build (`cargo xtask web`) served by
+  `trackcraft-server serve --web dist/web` was rendered in headless Chrome
+  (`--headless=new --screenshot --virtual-time-budget=15000`, both the default renderer and
+  `?webgl` with `--use-gl=angle --use-angle=swiftshader`): the WASM app starts, shows the sample
+  workspace's Home and opens the **Connect to a server workspace** dialog. That check found and
+  fixed an empty bottom-right panel drawn behind the dialog (it now appears only once the dialog
+  is closed or a workspace is connected). Not yet exercised in a browser: typing, clicking, a
+  real connect with a token, the `fetch`/`EventSource` sync driver, downloads and the file
+  picker (the sync state machine is tested natively against a fake transport, the ticket route
+  against the real router).

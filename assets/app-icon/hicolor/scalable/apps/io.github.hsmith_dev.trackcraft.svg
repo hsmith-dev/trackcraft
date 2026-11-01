@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- TrackCraft app icon. Original artwork by the TrackCraft contributors (MIT OR Apache-2.0).
+       The in-app mark (crates/ui-egui/src/icons.rs `app_mark`) drawn large: a teal tile with three
+       board columns of falling height. `cargo xtask icons` rasterizes this file, so keep to its
+       subset: one vertical linearGradient and <rect> elements (x, y, width, height, rx, fill). -->
+  <title>TrackCraft</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1C9F8A"/>
+      <stop offset="1" stop-color="#0A6156"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#tile)"/>
+  <rect x="84" y="115" width="88" height="282" rx="30" fill="#FFFFFF"/>
+  <rect x="212" y="115" width="88" height="195" rx="30" fill="#FFFFFF"/>
+  <rect x="340" y="115" width="88" height="113" rx="30" fill="#CDEFE7"/>
+</svg>

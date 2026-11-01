@@ -1,0 +1,69 @@
+# .deb and .rpm packages (nfpm: https://nfpm.goreleaser.com). Run by package.sh, which stages
+# the file tree, substitutes its path for ${STAGE} (nfpm doesn't expand env vars in `src`) and
+# exports VERSION, NFPM_ARCH, TRACKCRAFT_MAINTAINER and GLIBC_FLOOR.
+name: trackcraft
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+# semver: 0.2.0-rc.1 becomes 0.2.0~rc.1 in deb/rpm, so pre-releases sort before the release.
+version_schema: semver
+release: 1
+section: devel
+priority: optional
+maintainer: ${TRACKCRAFT_MAINTAINER}
+vendor: TrackCraft contributors
+homepage: https://github.com/hsmith-dev/trackcraft
+license: MIT OR Apache-2.0
+description: |-
+  Open-source issue tracker and team wiki in one workspace.
+  Projects, issues, workflows, boards, backlogs and JQL-style search next to
+  spaces of pages with version history; a workspace is one .track file that
+  works offline. Includes trackcraft-cli, a headless command runner and MCP
+  server.
+
+# The binaries link only glibc and libgcc_s directly. Windowing (X11/Wayland, xkbcommon) and the
+# GPU (Vulkan, EGL/GL) are loaded at runtime, so they are dependencies/recommendations here
+# rather than ELF NEEDED entries.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= ${GLIBC_FLOOR})
+      - libgcc-s1
+      - libxkbcommon0
+      - libvulkan1 | libegl1
+    recommends:
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - mesa-vulkan-drivers
+      - xdg-desktop-portal
+  rpm:
+    depends:
+      - libxkbcommon
+      - (vulkan-loader or libglvnd-egl)
+    recommends:
+      - libwayland-client
+      - libX11
+      - libXcursor
+      - libXi
+      - libXrandr
+      - mesa-vulkan-drivers
+      - xdg-desktop-portal
+
+contents:
+  - src: ${STAGE}/usr/bin/trackcraft
+    dst: /usr/bin/trackcraft
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/bin/trackcraft-cli
+    dst: /usr/bin/trackcraft-cli
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh

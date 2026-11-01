@@ -8,6 +8,9 @@ use std::process::{Command, ExitCode};
 
 use serde_json::Value;
 
+mod icons;
+mod version;
+
 const USAGE: &str = "\
 usage: cargo xtask <command>
 
@@ -20,6 +23,8 @@ commands:
   web       build the web client into dist/web with trunk (skipped when trunk isn't installed)
   parity    regenerate docs/parity-checklist.md from crates/engine/src/catalog.rs
             (--check: fail if the committed file is stale)
+  version   print the workspace version (`version set X.Y.Z[-pre]` changes it; packaging reads it)
+  icons     render assets/app-icon/trackcraft.svg into the PNG/ICO icons (packaging/icons.sh)
 ";
 
 /// Layer of each internal crate. A crate may depend only on strictly lower layers.
@@ -83,6 +88,8 @@ fn main() -> ExitCode {
         Some("wasm") => wasm(),
         Some("web") => web(),
         Some("parity") => parity(rest.contains(&"--check")),
+        Some("version") => version::run(&root(), &rest),
+        Some("icons") => icons::run(&root(), &rest),
         _ => {
             print!("{USAGE}");
             Ok(())

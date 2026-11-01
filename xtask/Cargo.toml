@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 serde_json.workspace = true
 trackcraft-engine.workspace = true
+# `cargo xtask icons` writes the app icon PNGs (already in the lock through the desktop app).
+png = "0.18"
 
 [lints]
 workspace = true

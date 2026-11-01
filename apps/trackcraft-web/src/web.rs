@@ -262,7 +262,9 @@ impl WebShell {
             }
         }
         let server_found = self.server.borrow().is_some();
-        if !server_found && self.conn.is_none() {
+        // Nothing to show while the dialog is up and nothing is connected (the panel would be an
+        // empty frame, as a headless-browser check showed).
+        if self.conn.is_none() && (!server_found || self.dialog.open) {
             return;
         }
         let mut action = None;

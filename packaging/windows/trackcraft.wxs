@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TrackCraft installer (WiX v5). Built by package.ps1:
+       wix build trackcraft.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+         -d Version=X.Y.Z -d BinDir=… -d IconPath=… -d LicenseRtf=… -d AppNoticesDir=… -d DocsDir=…
+     Scope perUserOrMachine with no scope dialog: Windows Installer then installs for the current
+     user (ALLUSERS=2 + MSIINSTALLPERUSER=1), into %LOCALAPPDATA%\Programs\TrackCraft, with no
+     administrator rights; `msiexec /i … ALLUSERS=1` installs per machine into Program Files. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <?ifndef HasCraftFontLicences ?>
+  <?define HasCraftFontLicences=0 ?>
+  <?endif?>
+  <Package Name="TrackCraft" Manufacturer="TrackCraft contributors" Version="$(var.Version)" UpgradeCode="AA95906E-8DD8-46C5-8C19-9429C748B65F" Scope="perUserOrMachine" Compressed="yes" Language="1033">
+    <SummaryInformation Description="TrackCraft issue tracker and wiki" Manufacturer="TrackCraft contributors" />
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
+         (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of TrackCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="TrackcraftIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="TrackcraftIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/hsmith-dev/trackcraft" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/hsmith-dev/trackcraft/releases" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/hsmith-dev/trackcraft/issues" />
+
+    <!-- Installer UI: WixUI_Minimal is welcome + license, progress, then a finish page that
+         offers to launch TrackCraft (WixShellExec). Its dialogs and bitmaps are WiX's own
+         (WixToolset.UI.wixext); package.ps1 builds the license RTF from LICENSE-MIT and
+         LICENSE-APACHE. Silent installs (/qn) show none of it. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch TrackCraft" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#TrackcraftExe]" />
+    <CustomAction Id="LaunchTrackcraft" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchTrackcraft" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="TrackCraft" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="TrackCraft" Level="1">
+      <ComponentGroupRef Id="AppNotices" />
+      <?if $(var.HasCraftFontLicences) = 1 ?>
+      <ComponentGroupRef Id="CraftFontLicences" />
+      <?endif?>
+      <ComponentGroupRef Id="TrackcraftFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppNotices" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppNoticesDir)\**" />
+    </ComponentGroup>
+    <?if $(var.HasCraftFontLicences) = 1 ?>
+    <ComponentGroup Id="CraftFontLicences" Directory="INSTALLFOLDER">
+      <Files Include="$(var.DocsDir)\**" />
+    </ComponentGroup>
+    <?endif?>
+    <ComponentGroup Id="TrackcraftFiles" Directory="INSTALLFOLDER">
+      <Component Id="TrackcraftApp" Guid="24C5A1CF-7E2B-4EF2-89B1-2687E7BA85FB">
+        <File Id="TrackcraftExe" Source="$(var.BinDir)\trackcraft.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="TrackCraft" Description="TrackCraft issue tracker and wiki" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="TrackcraftIcon.ico" IconIndex="0" />
+        </File>
+        <RegistryValue Root="HKMU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\trackcraft.exe" Value="[#TrackcraftExe]" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\TrackCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+
+        <!-- .track is TrackCraft's own workspace file, so the installer registers it as the
+             default (removed again on uninstall). -->
+        <ProgId Id="TrackCraft.Workspace" Description="TrackCraft Workspace" Icon="TrackcraftExe" IconIndex="0" Advertise="no">
+          <Extension Id="track" ContentType="application/x-trackcraft">
+            <Verb Id="open" Command="Open" TargetFile="TrackcraftExe" Argument="&quot;%1&quot;" />
+          </Extension>
+        </ProgId>
+      </Component>
+
+      <Component Id="TrackcraftCli">
+        <File Id="TrackcraftCliExe" Source="$(var.BinDir)\trackcraft-cli.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="TrackcraftServer">
+        <File Id="TrackcraftServerExe" Source="$(var.BinDir)\trackcraft-server.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

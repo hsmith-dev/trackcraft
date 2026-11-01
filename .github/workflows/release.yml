@@ -1,0 +1,60 @@
+name: Release
+
+# Builds, signs and packages every platform through the suite's shared release workflow, then
+# drafts a GitHub Release (docs/releasing.md). Runs on a push to the `release` branch, or by hand
+# (a test run on any branch builds the unsigned jobs; the signing jobs need the `release`
+# environment, which only the release branch may use).
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override for a test run, e.g. 0.2.0-rc.1 (empty: Cargo.toml)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Only this job publishes the GitHub release (and pushes the Flatpak OCI image to GHCR), so
+    # only it gets write access.
+    permissions:
+      contents: write
+      packages: write
+    # Tracks @main so suite-wide release fixes reach every app without a PR in each repository.
+    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
+    with:
+      app-name: trackcraft
+      app-title: TrackCraft
+      # Same craft-fonts commit as ci.yml (crates/ui-egui/build.rs embeds its faces).
+      craft-fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
+      # The web build embeds the Arabic, Devanagari and Hebrew faces (docs/web.md).
+      web-craft-fonts: true
+      # trackcraft-server: packaging/server/package.sh (Linux x86_64 and aarch64 tarballs).
+      has-server: true
+      version: ${{ inputs.version }}
+    # The names the shared workflow expects. Their values live in this repository's `release`
+    # environment and must be set there by the owner (docs/releasing.md); with them empty, a test
+    # run ships unsigned builds and the release branch refuses to build.
+    secrets:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+      AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}

@@ -1,0 +1,24 @@
+# Example systemd unit for the TrackCraft team server (docs/server.md). Install the binary as
+# /usr/local/bin/trackcraft-server, create a `trackcraft` system user owning /var/lib/trackcraft,
+# copy this file to /etc/systemd/system/ and run `systemctl enable --now trackcraft-server`.
+# It listens on loopback only: put a TLS reverse proxy in front of it to serve a network.
+[Unit]
+Description=TrackCraft team server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=trackcraft
+Group=trackcraft
+ExecStart=/usr/local/bin/trackcraft-server serve --data /var/lib/trackcraft --listen 127.0.0.1:8080
+# Ctrl-C/SIGINT saves every workspace and exits.
+KillSignal=SIGINT
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/trackcraft
+
+[Install]
+WantedBy=multi-user.target

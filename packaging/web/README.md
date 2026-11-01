@@ -9,7 +9,8 @@
 | `trackcraft-web-<hash>_bg.wasm` | The app |
 | `_headers`, `.htaccess` | Sample header rules for Netlify/Cloudflare Pages and Apache (copied from here) |
 
-There is no server-side code. Serve the folder with `trackcraft-server serve --web dist/web`
+`packaging/web/package.sh` zips the same site (plus this file as `HOSTING.md` and the licences)
+as `trackcraft-web-<version>.zip`, the release asset. There is no server-side code. Serve the folder with `trackcraft-server serve --web dist/web`
 (next to the API, same origin) or upload its contents anywhere that serves static files.
 
 ## Any path works
