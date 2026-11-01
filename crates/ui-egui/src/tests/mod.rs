@@ -3,6 +3,7 @@
 
 mod backlog; // UI-11
 mod board;
+mod connection;
 mod fixes;
 mod guard;
 mod hostile; // UI-6
@@ -19,7 +20,7 @@ mod toast; // UI-5
 mod wiki;
 mod wiki_comments; // UI-27
 mod wiki_diff; // UI-28, UI-29
-mod wiki_tree; // UI-30 // UI-fixes
+mod wiki_tree; // UI-30 // UI-fixes // M4.7
 
 use egui_kittest::Harness;
 use serde_json::json;

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-description = "TrackCraft live-sync client: snapshot, SSE event stream, optimistic commands with an offline queue (blocking, std only)"
+description = "TrackCraft live-sync client: snapshot, SSE event stream, optimistic commands with an offline queue (blocking, std sockets; https:// through rustls)"
 
 [dependencies]
 trackcraft-engine.workspace = true
@@ -13,8 +13,12 @@ trackcraft-store.workspace = true
 trackcraft-sync-proto.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
+# M4.7: https:// (rustls on ring, OS trust store).
+rustls.workspace = true
+rustls-native-certs.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
 trackcraft-server-lib.workspace = true
 trackcraft-api.workspace = true
 axum.workspace = true

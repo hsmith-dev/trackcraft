@@ -133,13 +133,14 @@ pub(crate) fn show(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
         return;
     }
     let mut click = None;
+    let remote = app.is_remote(); // M4.7: no Undo on a server workspace yet
     let mut hovered = vec![];
     let offset = -(crate::status_bar::HEIGHT + 14.0);
     egui::Area::new(egui::Id::unique("toasts")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, offset)).order(egui::Order::Foreground).show(ctx, |ui| {
         ui.with_layout(Layout::top_down(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             for toast in &app.toasts.items {
-                let undo = app.toasts.can_undo(toast, &app.session);
+                let undo = !remote && app.toasts.can_undo(toast, &app.session);
                 let r = one(ui, t, toast, undo, &mut click);
                 hovered.push((toast.id, r));
             }
@@ -152,7 +153,7 @@ pub(crate) fn show(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
     }
     match click {
         Some(Click::Undo(id)) => {
-            let ok = app.toasts.items.iter().find(|x| x.id == id).is_some_and(|x| app.toasts.can_undo(x, &app.session));
+            let ok = !remote && app.toasts.items.iter().find(|x| x.id == id).is_some_and(|x| app.toasts.can_undo(x, &app.session));
             app.toasts.dismiss(id);
             if ok {
                 app.push(Action::Run { id: "edit.undo", params: json!({}), then: Then::Toast("Undone".into()) });

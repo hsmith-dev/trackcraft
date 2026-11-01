@@ -36,6 +36,7 @@ use trackcraft_engine::Session;
 
 pub use craft_ui::ComboBox;
 pub use route::View;
+pub use status_bar::{ConnectionKind, ConnectionState}; // M4.7
 use theme::Tokens;
 
 /// A request the desktop host fulfils (file dialogs live outside this crate).
@@ -237,6 +238,8 @@ pub struct TrackApp {
     pub(crate) peek: Option<IssueKey>, // fixes
     /// File › Import… and its report (fixes).
     pub(crate) import: import_dialog::ImportUi, // fixes
+    /// The server connection indicator and remote mode (M4.7).
+    pub(crate) conn: status_bar::Connection, // M4.7
 }
 
 impl TrackApp {
@@ -291,6 +294,7 @@ impl TrackApp {
             wiki: wiki::WikiUi::default(),              // UI-27..30
             peek: None,                                 // fixes
             import: import_dialog::ImportUi::default(), // fixes
+            conn: status_bar::Connection::default(),    // M4.7
         }
     }
 
@@ -608,6 +612,8 @@ impl TrackApp {
                     });
                 }
             }
+            // M4.7: a server workspace saves every change on the server; there is no file.
+            Action::File(FileRequest::Save | FileRequest::SaveAs) if self.is_remote() => self.notify(REMOTE_SAVED),
             Action::File(r) => self.file_request = Some(r),
             Action::TogglePalette => self.palette = if self.palette.is_some() { None } else { Some(palette::Palette::default()) },
             Action::ShowHelp => self.help = true,
@@ -701,6 +707,9 @@ impl TrackApp {
     ///   (selecting the issue there); `{"key": null}` closes it (fixes)
     /// - `ui.import` `{}` opens File › Import…; `{"kind": "jiraCsv"|"jiraJson"|"confluence",
     ///   "path": "/abs/export", "space": "KEY"}` runs the import and shows its report (fixes)
+    /// - `ui.connection` `{"kind": "online"|"syncing"|"offline"|"error"|null, "label": …, "detail": …,
+    ///   "remote": bool}`: sets the status bar's connection indicator (`null` hides it) and/or
+    ///   remote mode; answers whether "Reconnect now" is waiting for the host (M4.7)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -832,6 +841,23 @@ impl TrackApp {
                 self.import_with(&params, &path);
                 Ok(json!({"ok": true, "report": self.import.report.is_some()}))
             }
+            // M4.7
+            "ui.connection" => {
+                if let Some(on) = p.get("remote").and_then(Value::as_bool) {
+                    self.set_remote(on);
+                }
+                match p.get("kind") {
+                    Some(Value::Null) => self.set_connection(None),
+                    Some(Value::String(k)) => {
+                        let kind = ConnectionKind::parse(k).ok_or("\"kind\" is online, syncing, offline or error")?;
+                        let text = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().chars().take(2000).collect::<String>();
+                        self.set_connection(Some(ConnectionState::new(kind, text("label"), text("detail"))));
+                    }
+                    Some(_) => return Err("\"kind\" is online, syncing, offline or error".into()),
+                    None => {}
+                }
+                Ok(json!({"ok": true, "reconnect": self.conn.reconnect, "remote": self.is_remote()}))
+            }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),
         }
     }
@@ -861,6 +887,41 @@ pub(crate) fn ago(now: trackcraft_model::Timestamp, t: trackcraft_model::Timesta
 
 // UI-3: rows per issue-list page (the engine's `search.jql` cap).
 pub(crate) const LIST_PAGE: usize = 1000;
+
+// M4.7: server connection hooks for the host (desktop remote mode, the web client).
+/// The tooltip on Undo/Redo, and the toast for their shortcuts, on a server workspace.
+pub(crate) const REMOTE_UNDO: &str = "Undo isn't available on server workspaces yet";
+/// File › Save on a server workspace.
+pub(crate) const REMOTE_SAVED: &str = "Saved on the server";
+
+impl TrackApp {
+    /// Shows (or, with `None`, hides) the connection indicator in the status bar. Call it
+    /// whenever the state changes; it is cheap to call every frame.
+    pub fn set_connection(&mut self, state: Option<ConnectionState>) {
+        self.conn.state = state;
+    }
+
+    /// The connection state last set.
+    pub fn connection(&self) -> Option<&ConnectionState> {
+        self.conn.state.as_ref()
+    }
+
+    /// The user chose "Reconnect now" on the indicator since the last call (taken once).
+    pub fn take_reconnect_request(&mut self) -> bool {
+        std::mem::take(&mut self.conn.reconnect)
+    }
+
+    /// Marks the workspace as a server workspace: Undo/Redo are disabled with a note, and
+    /// File › Save says the server keeps it. A remote-mode [`Session`] counts as one too.
+    pub fn set_remote(&mut self, on: bool) {
+        self.conn.remote = on;
+    }
+
+    /// A server workspace ([`TrackApp::set_remote`] or a remote-mode session).
+    pub fn is_remote(&self) -> bool {
+        self.conn.remote || self.session.is_remote()
+    }
+}
 
 #[cfg(test)]
 mod tests;

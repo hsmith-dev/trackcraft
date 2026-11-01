@@ -281,3 +281,6 @@ fn connect_errors() {
     c.workspace = Some("nope".into());
     assert!(Remote::connect(c, None).err().unwrap().contains("404"));
 }
+
+// M4.7: https:// (rustls), certificate errors, reconnect now.
+mod tls;

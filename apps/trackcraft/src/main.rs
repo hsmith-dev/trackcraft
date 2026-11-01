@@ -1,7 +1,7 @@
 //! TrackCraft desktop app.
 //!
 //! Usage: `trackcraft [--sample] [--control PORT] [--recent] [file.track]`, or remote mode
-//! `trackcraft --server http://host:port [--workspace NAME] [--token TOKEN]` (M4.2, `remote.rs`). With no file and no
+//! `trackcraft --server https://host[:port] [--workspace NAME] [--token TOKEN]` (M4.2, `remote.rs`; https:// since M4.7). With no file and no
 //! `--sample`, reopens the most recent workspace (if it still exists), else the sample workspace.
 //! File › New starts an empty one.
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
@@ -25,7 +25,7 @@ use control::{ControlRequest, KeyFile, reply_for};
 
 const USAGE: &str = "\
 usage: trackcraft [--sample] [--control PORT] [file.track]
-       trackcraft --server http://HOST:PORT [--workspace NAME] [--token TOKEN] [--control PORT]
+       trackcraft --server https://HOST[:PORT] [--workspace NAME] [--token TOKEN] [--control PORT]
        trackcraft --recent
 
   file.track        open this workspace (default: the most recent one, else the sample)
@@ -35,7 +35,8 @@ usage: trackcraft [--sample] [--control PORT] [file.track]
   --recent          list recently opened workspaces and exit
   --server URL      edit a workspace on a trackcraft-server live (docs/sync.md); the token
                     comes from --token, TRACKCRAFT_TOKEN or the server-token file in the
-                    config folder
+                    config folder. https:// checks the server's certificate against the
+                    system's trusted roots; http:// is for a server on this computer
   --workspace NAME  the hosted workspace (default: the server's default workspace)
   --token TOKEN     an API token (`trackcraft-server token create`)
 ";
@@ -326,7 +327,8 @@ fn remember(p: &Path) {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.logic(ctx);
-        // M4.2: local commands out, server changes in.
+        // M4.2: local commands out, server changes in; M4.7: the status bar indicator (and
+        // "Reconnect now") are updated in `pump`, the title keeps its suffix.
         if let Some(r) = self.remote.as_mut() {
             r.pump(&mut self.app, ctx);
         }
@@ -394,6 +396,9 @@ fn main() -> std::process::ExitCode {
             .and_then(|t| remote::RemoteMode::connect(server, args.workspace.as_deref(), &t));
         match connected {
             Ok((r, s)) => {
+                if r.unencrypted() {
+                    eprintln!("trackcraft: warning: {server} is not encrypted; use https:// for a server on another computer");
+                }
                 remote_mode = Some(r);
                 s
             }

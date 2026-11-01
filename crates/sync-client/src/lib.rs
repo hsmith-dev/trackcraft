@@ -23,7 +23,7 @@ pub mod http;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -46,7 +46,7 @@ pub const MAX_PENDING: usize = 10_000;
 /// Where and as whom to connect.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// `http://host:port[/prefix]`.
+    /// `https://host[:port][/prefix]`, or `http://…` (meant for a server on this computer).
     pub server: String,
     /// The hosted workspace (`/w/{name}`); `None` = the server's default.
     pub workspace: Option<String>,
@@ -57,6 +57,9 @@ pub struct Config {
     pub idle: Duration,
     /// Longest wait between reconnect attempts.
     pub max_backoff: Duration,
+    /// M4.7: for `https://`, trust only these root certificates (DER) instead of the system's
+    /// trust store (a private CA; tests). Empty = the system store.
+    pub ca_certs: Vec<Vec<u8>>,
 }
 
 impl Config {
@@ -68,6 +71,7 @@ impl Config {
             timeout: Duration::from_secs(20),
             idle: Duration::from_secs(45),
             max_backoff: Duration::from_secs(10),
+            ca_certs: Vec::new(),
         }
     }
 }
@@ -154,6 +158,8 @@ enum Incoming {
 struct Shared {
     stop: AtomicBool,
     resync: AtomicBool,
+    /// Bumped by [`Remote::reconnect_now`]: cuts retry waits short (M4.7).
+    kick: AtomicU64,
     stream: Mutex<Option<TcpStream>>,
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -171,11 +177,27 @@ impl Shared {
         }
     }
 
-    /// Sleeps up to `d`, returning early on stop (or, with `on_resync`, on a resync request).
-    fn sleep(&self, d: Duration, on_resync: bool) {
+    /// Sleeps up to `d`, returning early on stop, on [`Remote::reconnect_now`] (then `true`)
+    /// or, with `on_resync`, on a resync request.
+    fn sleep(&self, d: Duration, on_resync: bool) -> bool {
         let end = Instant::now() + d;
+        let kick = self.kick.load(Ordering::SeqCst);
         while Instant::now() < end && !self.stop.load(Ordering::SeqCst) && !(on_resync && self.resync.load(Ordering::SeqCst)) {
+            if self.kick.load(Ordering::SeqCst) != kick {
+                return true;
+            }
             std::thread::sleep(Duration::from_millis(25));
+        }
+        false
+    }
+
+    /// Waits before the next retry: `wait`, doubled up to `max` afterwards; a reconnect request
+    /// cuts the wait short and starts the backoff over.
+    fn retry_wait(&self, wait: &mut Duration, max: Duration, on_resync: bool) {
+        if self.sleep(*wait, on_resync) {
+            *wait = Duration::from_millis(250);
+        } else {
+            *wait = backoff(*wait, max);
         }
     }
 }
@@ -257,8 +279,7 @@ fn command_loop(net: Net, rx: Receiver<Outgoing>) {
                 }
                 Err(e) => net.send(Incoming::Commands(Err(e))),
             }
-            net.shared.sleep(wait, false);
-            wait = backoff(wait, net.cfg.max_backoff);
+            net.shared.retry_wait(&mut wait, net.cfg.max_backoff, false);
         }
     }
 }
@@ -283,8 +304,7 @@ fn event_loop(net: Net, mut since: u64, mut epoch: String) {
                 Err((_, m)) => net.send(Incoming::Events(Err(m))),
             }
             if need_snapshot {
-                net.shared.sleep(wait, false);
-                wait = backoff(wait, net.cfg.max_backoff);
+                net.shared.retry_wait(&mut wait, net.cfg.max_backoff, false);
                 continue;
             }
         }
@@ -293,20 +313,17 @@ fn event_loop(net: Net, mut since: u64, mut epoch: String) {
             Ok(s) if s.status == 200 => s,
             Ok(s) if s.status == 401 => {
                 net.send(Incoming::Unauthorized(format!("HTTP {}", s.status)));
-                net.shared.sleep(wait, true);
-                wait = backoff(wait, net.cfg.max_backoff);
+                net.shared.retry_wait(&mut wait, net.cfg.max_backoff, true);
                 continue;
             }
             Ok(s) => {
                 net.send(Incoming::Events(Err(format!("HTTP {}", s.status))));
-                net.shared.sleep(wait, true);
-                wait = backoff(wait, net.cfg.max_backoff);
+                net.shared.retry_wait(&mut wait, net.cfg.max_backoff, true);
                 continue;
             }
             Err(e) => {
                 net.send(Incoming::Events(Err(e)));
-                net.shared.sleep(wait, true);
-                wait = backoff(wait, net.cfg.max_backoff);
+                net.shared.retry_wait(&mut wait, net.cfg.max_backoff, true);
                 continue;
             }
         };
@@ -358,8 +375,7 @@ fn event_loop(net: Net, mut since: u64, mut epoch: String) {
         }
         if !need_snapshot && !net.shared.resync.load(Ordering::SeqCst) {
             net.send(Incoming::Events(Err(why)));
-            net.shared.sleep(wait, true);
-            wait = backoff(wait, net.cfg.max_backoff);
+            net.shared.retry_wait(&mut wait, net.cfg.max_backoff, true);
         }
     }
 }
@@ -378,6 +394,10 @@ fn client_id() -> String {
 /// The sync side of a remote session (owned by the UI thread).
 pub struct Remote {
     server: String,
+    /// `https://` (M4.7).
+    secure: bool,
+    /// The server is on this computer.
+    loopback: bool,
     client: String,
     confirmed: Session,
     pending: VecDeque<Pending>,
@@ -399,14 +419,18 @@ impl Remote {
     /// acting as the token's user) and the sync handle. `wake` is called from the network
     /// threads whenever [`Remote::pump`] has work (e.g. `egui::Context::request_repaint`).
     pub fn connect(cfg: Config, wake: Option<Arc<dyn Fn() + Send + Sync>>) -> Result<(Remote, Session), String> {
-        let ep = Endpoint::parse(&cfg.server, cfg.workspace.as_deref())?;
+        let mut ep = Endpoint::parse(&cfg.server, cfg.workspace.as_deref())?;
+        if !cfg.ca_certs.is_empty() {
+            ep = ep.with_ca_certs(&cfg.ca_certs)?; // M4.7
+        }
         if !http::valid_token(&cfg.token) {
             return Err("the token is empty or contains spaces or control characters".into());
         }
         let client = client_id();
         let snap = fetch_snapshot(&ep, &cfg.token, &client, cfg.timeout).map_err(|(code, m)| match code {
             401 => format!("{}: the server refused the token ({m})", ep.display()),
-            0 => format!("{}: {m}", ep.display()),
+            // The transport's message already names the host (certificate errors included).
+            0 => m,
             c => format!("{}: HTTP {c}: {m}", ep.display()),
         })?;
         let ws = workspace_of(&snap)?;
@@ -420,7 +444,13 @@ impl Remote {
         let sink = Arc::clone(&outbox);
         view.set_after_command(Some(Box::new(move |e| sink.lock().unwrap_or_else(|p| p.into_inner()).push(e.clone()))));
 
-        let shared = Arc::new(Shared { stop: AtomicBool::new(false), resync: AtomicBool::new(false), stream: Mutex::new(None), wake });
+        let shared = Arc::new(Shared {
+            stop: AtomicBool::new(false),
+            resync: AtomicBool::new(false),
+            kick: AtomicU64::new(0),
+            stream: Mutex::new(None),
+            wake,
+        });
         let (in_tx, in_rx) = mpsc::channel();
         let (out_tx, out_rx) = mpsc::channel();
         let net = |tx: Sender<Incoming>| Net {
@@ -443,6 +473,8 @@ impl Remote {
             .map_err(|e| e.to_string())?;
         let remote = Remote {
             server: ep.display(),
+            secure: ep.tls.is_some(),
+            loopback: ep.is_loopback(),
             client,
             confirmed,
             pending: VecDeque::new(),
@@ -461,9 +493,33 @@ impl Remote {
         Ok((remote, view))
     }
 
-    /// `http://host:port/w/name`.
+    /// `https://host:port/w/name` (or `http://…`).
     pub fn server(&self) -> &str {
         &self.server
+    }
+
+    /// The connection is encrypted (`https://`) (M4.7).
+    pub fn secure(&self) -> bool {
+        self.secure
+    }
+
+    /// Plain `http://` to another computer: the token and workspace cross the network in the
+    /// clear (worth a warning in the UI) (M4.7).
+    pub fn unencrypted_remote(&self) -> bool {
+        !self.secure && !self.loopback
+    }
+
+    /// The last connection error, if not online (for a status tooltip) (M4.7).
+    pub fn last_error(&self) -> Option<&str> {
+        match &self.state {
+            ConnState::Offline { reason } | ConnState::Unauthorized { reason } => Some(reason),
+            ConnState::Online | ConnState::Resyncing => None,
+        }
+    }
+
+    /// Retries now instead of waiting out the backoff ("Reconnect now") (M4.7).
+    pub fn reconnect_now(&self) {
+        self.shared.kick.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn state(&self) -> &ConnState {

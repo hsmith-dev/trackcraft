@@ -1,0 +1,18 @@
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"ui.connection","params":{"remote":true,"kind":"online","label":"Online","detail":"Server: https://track.example.org:443/w/team\nAll changes are on the server"}}
+{"shot":"/tmp/tc-shots/connection-online.png"}
+{"method":"ui.connection","params":{"kind":"syncing","label":"Online · 2 unsent","detail":"2 changes waiting to be sent"}}
+{"shot":"/tmp/tc-shots/connection-syncing.png"}
+{"method":"ui.connection","params":{"kind":"offline","label":"Offline · 3 unsent","detail":"3 changes waiting to be sent\nLast error: connection refused"}}
+{"shot":"/tmp/tc-shots/connection-offline.png"}
+{"method":"ui.connection","params":{"kind":"error","label":"Token refused","detail":"Last error: the server refused the token"}}
+{"shot":"/tmp/tc-shots/connection-error.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.connection","params":{"kind":"online","label":"Online","detail":"Server: https://track.example.org:443/w/team"}}
+{"shot":"/tmp/tc-shots/connection-online-dark.png"}
+{"method":"ui.connection","params":{"kind":"syncing","label":"Online · 2 unsent","detail":"2 changes waiting to be sent"}}
+{"shot":"/tmp/tc-shots/connection-syncing-dark.png"}
+{"method":"ui.connection","params":{"kind":"offline","label":"Offline · 3 unsent","detail":"3 changes waiting to be sent\nLast error: connection refused"}}
+{"shot":"/tmp/tc-shots/connection-offline-dark.png"}
+{"method":"ui.connection","params":{"kind":"error","label":"Token refused","detail":"Last error: the server refused the token"}}
+{"shot":"/tmp/tc-shots/connection-error-dark.png"}

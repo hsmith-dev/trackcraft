@@ -50,6 +50,14 @@ futures-util = { version = "0.3", default-features = false }
 # through flate2 (MIT OR Apache-2.0) on its pure-Rust miniz_oxide backend (MIT OR Zlib OR Apache-2.0).
 zip = { version = "3", default-features = false, features = ["deflate-flate2"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# M4.7: HTTPS in the desktop sync client (crates/sync-client, native only; see docs/sync.md
+# "TLS"). rustls (Apache-2.0 OR ISC OR MIT) on the `ring` provider (Apache-2.0 AND ISC; builds
+# with a C compiler through `cc`, no cmake, unlike aws-lc-rs), roots from the OS trust store via
+# rustls-native-certs (Apache-2.0 OR ISC OR MIT), so no bundled CA data (webpki-roots' data is
+# CDLA-Permissive-2.0). rcgen (MIT OR Apache-2.0) makes test certificates: dev-dependency only.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 
 # ui — the suite's egui fork (same pins as the sibling apps; see [patch.crates-io])
 egui = "0.37"
