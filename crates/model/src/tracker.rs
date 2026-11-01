@@ -175,7 +175,7 @@ pub struct IssueLink {
 /// One field change in an issue's activity history.
 ///
 /// Field names are the JQL names: `created`, `status`, `resolution`, `assignee`, `priority`,
-/// `summary`, `description`, `labels`, `storyPoints`, `link`, `comment`. Entries made by one
+/// `summary`, `description`, `labels`, `storyPoints`, `sprint` (sprint names), `link`, `comment`. Entries made by one
 /// command share an `id` (Jira's changelog groups them the same way). Values are display strings:
 /// user ids, status and priority names, labels space-separated. Rich text (description, comment
 /// bodies) is stored as a short plain-text preview ([`HISTORY_PREVIEW`] characters) so the history
@@ -215,6 +215,16 @@ pub struct Issue {
     /// load with an empty history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<Change>,
+    /// Backlog order within the project (see [`crate::rank`]). Files saved before ranks existed
+    /// load without one; `Workspace::repair` (run by `store` on load) ranks them in key order.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rank: String,
+    /// The open (future or active) sprint the issue is in; `None` = the backlog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprint: Option<Id>,
+    /// Closed sprints the issue was in when they completed, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub past_sprints: Vec<Id>,
 }
 
 /// What `issue.create` takes.
@@ -306,6 +316,13 @@ impl Workspace {
         if let Some(p) = self.projects.get_mut(&pkey) {
             p.next_number = number.saturating_add(1);
         }
+        // Sub-tasks follow their parent into its (open) sprint.
+        let sprint = if issue_type.subtask {
+            parent.as_ref().and_then(|p| self.issues.get(p)).and_then(|p| p.sprint).filter(|id| self.sprints.contains_key(id))
+        } else {
+            None
+        };
+        let rank = self.bottom_rank(&pkey);
         let issue = Issue {
             key: key.clone(),
             issue_type: issue_type.name,
@@ -324,6 +341,9 @@ impl Workspace {
             comments: vec![],
             links: vec![],
             history: vec![],
+            rank,
+            sprint,
+            past_sprints: vec![],
         };
         let reporter = issue.reporter.clone();
         self.issues.insert(key.clone(), issue);
@@ -333,7 +353,7 @@ impl Workspace {
 
     /// Appends one primitive's changes to an issue's history. Entries whose value didn't change
     /// are skipped. Inside a batch ([`Workspace::begin_batch`]) every entry shares one id.
-    fn record(&mut self, key: &IssueKey, author: &str, at: Timestamp, items: Vec<(&str, Option<String>, Option<String>)>) {
+    pub(crate) fn record(&mut self, key: &IssueKey, author: &str, at: Timestamp, items: Vec<(&str, Option<String>, Option<String>)>) {
         let items: Vec<_> = items.into_iter().filter(|(f, from, to)| matches!(*f, "created" | "comment" | "link") || from != to).collect();
         if items.is_empty() || !self.issues.contains_key(key) {
             return;

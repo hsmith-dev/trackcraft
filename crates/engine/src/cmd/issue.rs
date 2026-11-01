@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use trackcraft_core::Id;
 use trackcraft_jql::{Context, matches, parse};
-use trackcraft_model::{IssueRecord, LinkKind, NewIssue, ProjectKind};
+use trackcraft_model::{IssueRecord, LinkKind, NewIssue, ProjectKind, SprintState};
 
 use crate::{CmdResult, CommandSpec, Session, json as view, params};
 
@@ -37,7 +37,9 @@ pub fn commands() -> Vec<CommandSpec> {
             .key("/")
             .params(r#"{"jql": "project = LUME AND status != Done ORDER BY priority", "startAt": 0, "maxResults": 50}"#)
             .query(),
-        CommandSpec::new("board.view", "Board", "Project › Board", board_view).params(r#"{"project": "LUME", "jql": "assignee = currentUser() (optional filter)"}"#).query(),
+        CommandSpec::new("board.view", "Board", "Project › Board", board_view)
+            .params(r#"{"project": "LUME", "jql": "assignee = currentUser() (optional filter)", "sprint": "active" | 7 (optional: only that sprint's issues)} → columns of cards in rank order"#)
+            .query(),
     ]
 }
 
@@ -190,7 +192,7 @@ fn issue_delete(s: &mut Session, p: &Value) -> CmdResult {
 }
 
 /// Runs a JQL query and returns matching keys in result order.
-fn search(s: &Session, jql: &str) -> Result<Vec<trackcraft_core::IssueKey>, String> {
+pub(crate) fn search(s: &Session, jql: &str) -> Result<Vec<trackcraft_core::IssueKey>, String> {
     let q = parse(jql).map_err(|e| format!("JQL: {e}"))?;
     let cx = Context { current_user: Some(s.user.clone()), now: s.now() };
     let mut hits: Vec<IssueRecord<'_>> = Vec::new();
@@ -222,11 +224,30 @@ fn board_view(s: &mut Session, p: &Value) -> CmdResult {
     let proj = s.ws.project(params::str(p, "project")?).map_err(err)?;
     let key = proj.key.clone();
     let extra = params::opt_str(p, "jql")?.filter(|q| !q.trim().is_empty());
+    let sprint = match p.get("sprint") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(v)) if v.trim().eq_ignore_ascii_case("active") => {
+            Some(s.ws.active_sprint(&key).ok_or_else(|| format!("project {key} has no active sprint"))?.id)
+        }
+        Some(_) => {
+            let id = params::id(p, "sprint").map_err(|_| "\"sprint\" is \"active\" or a sprint id".to_string())?;
+            let sp = s.ws.sprint(id).map_err(err)?;
+            if sp.project != key {
+                return Err(format!("{} belongs to project {}", sp.name, sp.project));
+            }
+            Some(id)
+        }
+    };
     let jql = match extra {
-        Some(q) => format!("project = {key} AND ({q}) ORDER BY priority, key"),
-        None => format!("project = {key} ORDER BY priority, key"),
+        Some(q) => format!("project = {key} AND ({q}) ORDER BY rank, key"),
+        None => format!("project = {key} ORDER BY rank, key"),
     };
     let keys = search(s, &jql)?;
+    // A closed sprint's board shows the issues it held when it completed.
+    let in_sprint = |i: &&trackcraft_model::Issue| match sprint {
+        None => true,
+        Some(id) => i.sprint == Some(id) || (i.past_sprints.contains(&id) && s.ws.sprints.get(&id).is_some_and(|sp| sp.state == SprintState::Closed)),
+    };
     let proj = s.ws.project(key.as_str()).map_err(err)?;
     let columns: Vec<Value> = proj
         .workflow
@@ -236,11 +257,13 @@ fn board_view(s: &mut Session, p: &Value) -> CmdResult {
             let cards: Vec<Value> = keys
                 .iter()
                 .filter_map(|k| s.ws.issues.get(k))
+                .filter(in_sprint)
                 .filter(|i| i.status.eq_ignore_ascii_case(&st.name))
                 .map(|i| view::issue_brief(&s.ws, i))
                 .collect();
             json!({"status": st.name, "statusCategory": st.category.name(), "issues": cards})
         })
         .collect();
-    Ok(json!({"project": key.as_str(), "columns": columns}))
+    let sprint = sprint.and_then(|id| s.ws.sprints.get(&id)).map(|sp| view::sprint(&s.ws, sp));
+    Ok(json!({"project": key.as_str(), "sprint": sprint, "columns": columns}))
 }

@@ -103,5 +103,23 @@ pub fn workspace(now: Timestamp) -> Workspace {
         4,
     );
     page(&mut w, "TEAM", None, "Onboarding", "Welcome! Start with the Engineering Handbook, then pick an issue labelled good-first-issue.", "jo", 55);
+    plan(&mut w, now);
     w
+}
+
+/// LUME's backlog order and sprints: an active two-week sprint (started five days ago) holding
+/// LUME-2, LUME-3 and LUME-4 (LUME-7 follows its parent), an empty planned sprint, and LUME-6
+/// waiting in the backlog.
+/// Runs last so the sprint ids don't shift the page ids above.
+fn plan(w: &mut Workspace, now: Timestamp) {
+    let ago = |d: i64| now - Duration::days(d);
+    let Ok(lume) = w.project("LUME").map(|p| p.key.clone()) else { return };
+    let order: Vec<_> = [4, 2, 7, 3, 6, 1, 5].into_iter().map(|n| trackcraft_core::IssueKey::new(lume.clone(), n)).collect();
+    w.rebalance_ranks(&lume, &order);
+    let keys = |ks: &[&str]| ks.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+    if let Ok(s1) = w.create_sprint("LUME", None, Some("Recent notes open without a connection"), None, None) {
+        let _ = w.set_sprint(&keys(&["LUME-4", "LUME-2", "LUME-3"]), Some(s1), "riley", ago(5));
+        let _ = w.start_sprint(s1, ago(5), ago(5) + Duration::days(14), None);
+    }
+    let _ = w.create_sprint("LUME", None, Some("Harden long titles"), None, None);
 }

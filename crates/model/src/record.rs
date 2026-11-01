@@ -2,7 +2,7 @@
 
 use trackcraft_jql::{FieldChange, FieldHistory, FieldValue, Record};
 
-use crate::{Issue, Workspace, priority_rank};
+use crate::{Issue, SprintState, Workspace, priority_rank};
 
 pub struct IssueRecord<'a> {
     pub ws: &'a Workspace,
@@ -34,6 +34,18 @@ impl Record for IssueRecord<'_> {
             "created" | "createddate" => FieldValue::Time(i.created),
             "updated" | "updateddate" => FieldValue::Time(i.updated),
             "resolved" | "resolutiondate" => i.resolved.map_or(FieldValue::None, FieldValue::Time),
+            // Rank sorts byte-wise (`ORDER BY rank`); ranks are base-36 keys.
+            "rank" => FieldValue::Lexical(i.rank.clone()),
+            // The current sprint and closed sprints the issue was in, each as id and name, so
+            // `sprint = 7` and `sprint = "LUME Sprint 1"` both match.
+            "sprint" => FieldValue::Many(
+                i.past_sprints
+                    .iter()
+                    .chain(i.sprint.iter())
+                    .filter_map(|id| self.ws.sprints.get(id))
+                    .flat_map(|s| [s.id.0.to_string(), s.name.clone()])
+                    .collect(),
+            ),
             "issuelinktype" => FieldValue::Many(i.links.iter().map(|l| l.kind.outward().to_string()).collect()),
             _ => FieldValue::None,
         }
@@ -60,6 +72,25 @@ impl Record for IssueRecord<'_> {
         };
         let created_by = i.history.iter().find(|c| c.field == "created").map_or_else(|| i.reporter.clone(), |c| c.author.clone());
         Some(FieldHistory { created: Some(i.created), created_by: Some(created_by), initial, changes })
+    }
+
+    /// `openSprints()` (future and active) and `closedSprints()`: sprint ids of the issue's
+    /// project.
+    fn function(&self, name: &str, _args: &[String]) -> Option<Vec<String>> {
+        let open = match name.to_ascii_lowercase().as_str() {
+            "opensprints" => true,
+            "closedsprints" => false,
+            _ => return None,
+        };
+        let project = &self.issue.key.project;
+        Some(
+            self.ws
+                .sprints
+                .values()
+                .filter(|s| &s.project == project && (s.state != SprintState::Closed) == open)
+                .map(|s| s.id.0.to_string())
+                .collect(),
+        )
     }
 
     fn text(&self) -> String {

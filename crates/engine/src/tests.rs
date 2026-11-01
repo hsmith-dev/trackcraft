@@ -32,7 +32,7 @@ fn catalog_ids_exist_and_floor_holds() {
     }
     let (done, total) = catalog::coverage();
     // The floor only rises: raise it when you implement catalog rows.
-    assert!(done >= 52, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 55, "catalog coverage fell to {done}/{total}");
 }
 
 /// Every command, fed junk, returns an error or a value — never a panic, and a failed command
@@ -60,6 +60,17 @@ fn hostile_params_never_panic() {
         json!({"jql": format!("status WAS IN ({})", vec!["x"; 20_000].join(","))}),
         json!({"jql": "labels CHANGED AFTER yesterday"}),
         json!({"jql": "status CHANGED DURING (now(), nope())"}),
+        json!({"keys": vec!["LUME-1"; 5_000], "before": "LUME-2", "sprint": null}),
+        json!({"keys": "LUME-1 ".repeat(5_000), "after": "LUME-2"}),
+        json!({"keys": ["LUME-1"], "before": "LUME-1", "after": "LUME-2", "sprint": "active"}),
+        json!({"keys": ["LUME-2", "OPS-1"], "before": "LUME-3", "sprint": u64::MAX}),
+        json!({"keys": [1, {}], "before": 3, "sprint": []}),
+        json!({"keys": ["LUME-7"], "sprint": "x", "after": "LUME-99999999999999999999"}),
+        json!({"id": "nope", "moveOpenTo": {}, "startDate": "2026-13-45", "endDate": 5}),
+        json!({"id": u64::MAX, "moveOpenTo": "new", "startDate": "2026-11-03", "endDate": "2026-11-01"}),
+        json!({"project": "LUME", "sprint": "active", "name": "\u{0}", "goal": "é".repeat(5_000), "startDate": "+999999-01-01T00:00:00Z"}),
+        json!({"project": "OPS", "sprint": "active", "jql": "sprint IN openSprints("}),
+        json!({"project": "LUME", "jql": "sprint IN nope() ORDER BY rank"}),
     ];
     for c in commands() {
         if c.id == "file.open" || c.id == "file.save" {
@@ -252,4 +263,189 @@ fn jql_history_operators_on_the_sample() {
     let e = s.run("search.jql", &json!({"jql": "labels WAS ui"})).unwrap_err();
     assert!(e.contains("not supported for field 'labels'"), "{e}");
     assert!(s.run("search.jql", &json!({"jql": "status CHANGED AFTER someday"})).is_err());
+}
+
+// ---- backlog, rank, sprints --------------------------------------------------------------------
+
+fn keys_of(v: &Value) -> Vec<String> {
+    v.as_array().map(|a| a.iter().filter_map(|i| i["key"].as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
+fn sprint_ids(s: &mut Session) -> (u64, u64) {
+    let l = run(s, "sprint.list", json!({"project": "LUME"}));
+    (l[0]["id"].as_u64().unwrap_or_default(), l[1]["id"].as_u64().unwrap_or_default())
+}
+
+#[test]
+fn backlog_on_the_sample() {
+    let mut s = session();
+    let b = run(&mut s, "board.backlog", json!({"project": "lume"}));
+    let sprints = b["sprints"].as_array().cloned().unwrap_or_default();
+    assert_eq!(sprints.len(), 2);
+    assert_eq!(sprints[0]["state"], "active");
+    assert_eq!(sprints[0]["name"], "LUME Sprint 1");
+    assert_eq!(sprints[0]["startDate"], "2026-10-26T12:00:00+00:00");
+    assert_eq!(sprints[0]["endDate"], "2026-11-09T12:00:00+00:00");
+    assert_eq!(keys_of(&sprints[0]["issues"]), ["LUME-4", "LUME-2", "LUME-3"], "rank order, sub-task LUME-7 left out");
+    assert_eq!(sprints[0]["points"], 8.0);
+    assert_eq!(sprints[0]["counts"], json!({"todo": 1, "inProgress": 2, "done": 0}));
+    assert_eq!(sprints[1]["state"], "future");
+    assert_eq!(keys_of(&sprints[1]["issues"]), [] as [&str; 0]);
+    // Epic LUME-1 and done LUME-5 are not backlog rows.
+    assert_eq!(keys_of(&b["backlog"]), ["LUME-6"]);
+    let mine = run(&mut s, "board.backlog", json!({"project": "LUME", "jql": "assignee = jo"}));
+    assert_eq!(keys_of(&mine["sprints"][0]["issues"]), ["LUME-4"]);
+    assert!(s.run("board.backlog", &json!({"project": "LUME", "jql": "status = "})).is_err());
+    let ops = run(&mut s, "board.backlog", json!({"project": "OPS"}));
+    assert_eq!(ops["sprints"], json!([]));
+    assert_eq!(keys_of(&ops["backlog"]), ["OPS-1"]);
+    assert!(!s.can_undo(), "queries add no undo step");
+}
+
+#[test]
+fn rank_is_one_undo_step_and_validated() {
+    let mut s = session();
+    let order = |s: &mut Session| keys_of(&run(s, "board.backlog", json!({"project": "LUME"}))["sprints"][0]["issues"]);
+    run(&mut s, "issue.rank", json!({"keys": ["LUME-3", "LUME-2"], "before": "LUME-4"}));
+    assert_eq!(order(&mut s), ["LUME-3", "LUME-2", "LUME-4"]);
+    run(&mut s, "issue.rank", json!({"keys": "LUME-3", "after": "LUME-4"}));
+    assert_eq!(order(&mut s), ["LUME-2", "LUME-4", "LUME-3"]);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(order(&mut s), ["LUME-3", "LUME-2", "LUME-4"]);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(order(&mut s), ["LUME-4", "LUME-2", "LUME-3"]);
+    assert!(!s.can_undo());
+    let before = history(&mut s, "LUME-3");
+    run(&mut s, "issue.rank", json!({"keys": ["LUME-3"], "before": "LUME-2"}));
+    assert_eq!(history(&mut s, "LUME-3"), before, "rank is not history-worthy");
+    for bad in [
+        json!({"keys": ["LUME-3"]}),
+        json!({"keys": ["LUME-3"], "before": "LUME-3"}),
+        json!({"keys": ["LUME-3"], "before": "LUME-2", "after": "LUME-4"}),
+        json!({"keys": ["LUME-3"], "before": "OPS-1"}),
+        json!({"keys": [], "before": "LUME-2"}),
+        json!({"keys": vec!["LUME-3"; 1001], "before": "LUME-2"}),
+    ] {
+        assert!(s.run("issue.rank", &bad).is_err(), "{bad}");
+    }
+    // Board cards follow rank within columns.
+    run(&mut s, "issue.rank", json!({"keys": ["LUME-6"], "before": "LUME-3"}));
+    let b = run(&mut s, "board.view", json!({"project": "LUME"}));
+    assert_eq!(keys_of(&b["columns"][0]["issues"]), ["LUME-6", "LUME-3", "LUME-7", "LUME-1"]);
+}
+
+#[test]
+fn set_sprint_moves_ranks_and_records_history() {
+    let mut s = session();
+    let (active, future) = sprint_ids(&mut s);
+    run(&mut s, "issue.setSprint", json!({"keys": ["LUME-6"], "sprint": active, "before": "LUME-2"}));
+    let b = run(&mut s, "board.backlog", json!({"project": "LUME"}));
+    assert_eq!(keys_of(&b["sprints"][0]["issues"]), ["LUME-4", "LUME-6", "LUME-2", "LUME-3"]);
+    assert_eq!(keys_of(&b["backlog"]), [] as [&str; 0]);
+    let h = history(&mut s, "LUME-6");
+    assert_eq!(items(&h[0]), [("sprint".into(), Value::Null, json!("LUME Sprint 1"))]);
+    assert_eq!(run(&mut s, "issue.get", json!({"key": "LUME-6"}))["sprint"]["id"], active);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(keys_of(&run(&mut s, "board.backlog", json!({"project": "LUME"}))["backlog"]), ["LUME-6"], "one undo step");
+    // Parents carry their sub-tasks.
+    run(&mut s, "issue.setSprint", json!({"keys": ["LUME-2"], "sprint": future.to_string()}));
+    assert_eq!(run(&mut s, "issue.get", json!({"key": "LUME-7"}))["sprint"]["id"], future);
+    assert_eq!(items(&history(&mut s, "LUME-7")[0]), [("sprint".into(), json!("LUME Sprint 1"), json!("LUME Sprint 2"))]);
+    run(&mut s, "issue.setSprint", json!({"keys": ["LUME-2"], "sprint": null}));
+    assert_eq!(run(&mut s, "issue.get", json!({"key": "LUME-2"}))["sprint"], Value::Null);
+    assert!(s.run("issue.setSprint", &json!({"keys": ["LUME-7"], "sprint": active})).is_err(), "sub-task");
+    assert!(s.run("issue.setSprint", &json!({"keys": ["LUME-6"]})).is_err(), "sprint is required");
+    assert!(s.run("issue.setSprint", &json!({"keys": ["OPS-1"], "sprint": active})).is_err(), "other project");
+    assert!(s.run("issue.setSprint", &json!({"keys": ["LUME-6"], "sprint": 999_999})).is_err());
+    let r = run(&mut s, "search.jql", json!({"jql": "sprint IN openSprints() ORDER BY rank"}));
+    assert_eq!(keys_of(&r["issues"]), ["LUME-4", "LUME-3"]);
+    let r = run(&mut s, "search.jql", json!({"jql": r#"sprint = "LUME Sprint 1" ORDER BY rank"#}));
+    assert_eq!(r["total"], 2);
+    let r = run(&mut s, "search.jql", json!({"jql": format!("sprint = {active} OR sprint IS EMPTY AND project = LUME ORDER BY rank")}));
+    assert_eq!(keys_of(&r["issues"]), ["LUME-4", "LUME-2", "LUME-7", "LUME-3", "LUME-6", "LUME-1", "LUME-5"]);
+}
+
+#[test]
+fn sprint_create_edit_delete() {
+    let mut s = session();
+    let c = run(&mut s, "sprint.create", json!({"project": "LUME", "goal": "Later", "startDate": "2026-11-17", "endDate": "2026-12-01T09:00:00Z"}));
+    assert_eq!(c["name"], "LUME Sprint 3");
+    assert_eq!(c["state"], "future");
+    assert_eq!(c["startDate"], "2026-11-17T00:00:00+00:00");
+    assert_eq!(c["endDate"], "2026-12-01T09:00:00+00:00");
+    let id = c["id"].clone();
+    assert!(s.run("sprint.create", &json!({"project": "LUME", "startDate": "2026-11-17", "endDate": "2026-11-10"})).is_err());
+    assert!(s.run("sprint.create", &json!({"project": "LUME", "startDate": "tomorrow"})).is_err());
+    let e = run(&mut s, "sprint.edit", json!({"id": id, "name": "Polish", "goal": "Shine"}));
+    assert_eq!((e["name"].clone(), e["goal"].clone()), (json!("Polish"), json!("Shine")));
+    assert!(s.run("sprint.edit", &json!({"id": id})).is_err(), "nothing to change");
+    assert!(s.run("sprint.edit", &json!({"id": id, "endDate": "2026-11-01"})).is_err(), "end before start");
+    run(&mut s, "issue.setSprint", json!({"keys": ["LUME-6"], "sprint": id}));
+    let d = run(&mut s, "sprint.delete", json!({"id": id}));
+    assert_eq!(d["backlog"], json!(["LUME-6"]));
+    assert_eq!(items(&history(&mut s, "LUME-6")[0]), [("sprint".into(), json!("Polish"), Value::Null)]);
+    assert!(s.run("sprint.delete", &json!({"id": id})).is_err());
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(run(&mut s, "sprint.list", json!({"project": "LUME"})).as_array().map(Vec::len), Some(3));
+}
+
+#[test]
+fn sprint_start_and_complete() {
+    let mut s = session();
+    let (active, future) = sprint_ids(&mut s);
+    let e = s.run("sprint.start", &json!({"id": future, "startDate": "2026-11-09", "endDate": "2026-11-23"})).unwrap_err();
+    assert!(e.contains("already active"), "{e}");
+    assert!(s.run("sprint.start", &json!({"id": future})).is_err(), "dates required");
+    assert!(s.run("sprint.complete", &json!({"id": active})).is_err(), "moveOpenTo required");
+    assert!(s.run("sprint.complete", &json!({"id": future, "moveOpenTo": "backlog"})).is_err(), "not active");
+    assert!(s.run("sprint.complete", &json!({"id": active, "moveOpenTo": active})).is_err());
+
+    run(&mut s, "issue.transition", json!({"key": "LUME-3", "to": "Done"}));
+    let undo_before = s.ws.clone();
+    let c = run(&mut s, "sprint.complete", json!({"id": active, "moveOpenTo": future}));
+    assert_eq!(c["done"], json!(["LUME-3"]));
+    assert_eq!(c["moved"], json!(["LUME-2", "LUME-4", "LUME-7"]));
+    assert_eq!(c["sprint"]["state"], "closed");
+    assert_eq!(c["sprint"]["completeDate"], "2026-10-31T12:00:00+00:00");
+    assert_eq!(items(&history(&mut s, "LUME-4")[0]), [("sprint".into(), json!("LUME Sprint 1"), json!("LUME Sprint 2"))]);
+    let b = run(&mut s, "board.backlog", json!({"project": "LUME"}));
+    assert_eq!(b["sprints"].as_array().map(Vec::len), Some(1));
+    assert_eq!(keys_of(&b["sprints"][0]["issues"]), ["LUME-4", "LUME-2"]);
+    let closed = run(&mut s, "search.jql", json!({"jql": "sprint IN closedSprints() ORDER BY key"}));
+    assert_eq!(keys_of(&closed["issues"]), ["LUME-2", "LUME-3", "LUME-4", "LUME-7"]);
+    // The closed sprint's board still shows what it held.
+    let old = run(&mut s, "board.view", json!({"project": "LUME", "sprint": active}));
+    assert_eq!(keys_of(&old["columns"][3]["issues"]), ["LUME-3"]);
+    assert!(s.run("board.view", &json!({"project": "LUME", "sprint": "active"})).is_err(), "no active sprint now");
+    // One undo step restores the sprint and every issue.
+    run(&mut s, "edit.undo", json!({}));
+    assert!(s.ws == undo_before);
+
+    // Start the next one after completing into a new sprint.
+    let c = run(&mut s, "sprint.complete", json!({"id": active, "moveOpenTo": "new"}));
+    let new_id = c["movedTo"].clone();
+    assert_eq!(run(&mut s, "sprint.list", json!({"project": "LUME"}))[1]["name"], "LUME Sprint 3");
+    let st = run(&mut s, "sprint.start", json!({"id": new_id, "startDate": "2026-11-02", "endDate": "2026-11-16", "goal": "Finish offline"}));
+    assert_eq!((st["state"].clone(), st["goal"].clone()), (json!("active"), json!("Finish offline")));
+    let board = run(&mut s, "board.view", json!({"project": "LUME", "sprint": "active"}));
+    assert_eq!(board["sprint"]["id"], new_id);
+    let on_board: Vec<String> = board["columns"].as_array().into_iter().flatten().flat_map(|c| keys_of(&c["issues"])).collect();
+    assert_eq!(on_board, ["LUME-7", "LUME-2", "LUME-4"]);
+    assert!(s.run("sprint.start", &json!({"id": future, "startDate": "2026-11-02", "endDate": "2026-11-01"})).is_err());
+}
+
+#[test]
+fn board_view_sprint_filter() {
+    let mut s = session();
+    let (active, future) = sprint_ids(&mut s);
+    let b = run(&mut s, "board.view", json!({"project": "LUME", "sprint": "active"}));
+    assert_eq!(b["sprint"]["id"], active);
+    let all: Vec<String> = b["columns"].as_array().into_iter().flatten().flat_map(|c| keys_of(&c["issues"])).collect();
+    assert_eq!(all, ["LUME-7", "LUME-3", "LUME-2", "LUME-4"]);
+    let f = run(&mut s, "board.view", json!({"project": "LUME", "sprint": future}));
+    assert!(f["columns"].as_array().into_iter().flatten().all(|c| c["issues"] == json!([])));
+    assert_eq!(run(&mut s, "board.view", json!({"project": "LUME"}))["sprint"], Value::Null);
+    assert!(s.run("board.view", &json!({"project": "OPS", "sprint": "active"})).is_err());
+    assert!(s.run("board.view", &json!({"project": "OPS", "sprint": active})).is_err(), "another project's sprint");
+    assert!(s.run("board.view", &json!({"project": "LUME", "sprint": {}})).is_err());
 }

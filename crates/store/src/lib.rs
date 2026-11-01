@@ -57,10 +57,14 @@ pub fn from_str(s: &str) -> Result<Workspace, StoreError> {
     }
     // Migrations from older schemas go here, one step per version. Additive fields don't bump the
     // schema: they are `#[serde(default)]` in the model (e.g. `Issue::history`, added in schema 1
-    // — files written before it load with empty histories, and older builds ignore it).
+    // — files written before it load with empty histories, and older builds ignore it). Issue
+    // ranks and sprints (`Issue::rank`, `Issue::sprint`, `Workspace::sprints`) are additive the
+    // same way; `repair` then ranks unranked issues in key order and drops dangling sprint
+    // references, so hand-edited or hostile files can't break backlog order.
     let env: Envelope<Workspace> = serde_json::from_value(head).map_err(|e| StoreError::Format(e.to_string()))?;
     let mut ws = env.workspace;
     ws.schema_version = SCHEMA_VERSION;
+    ws.repair();
     Ok(ws)
 }
 
@@ -119,6 +123,37 @@ mod tests {
         v["workspace"]["issues"]["A-1"].as_object_mut().unwrap().remove("history");
         let old = from_str(&v.to_string()).unwrap();
         assert!(old.issue("A-1").unwrap().history.is_empty());
+    }
+
+    #[test]
+    fn files_without_ranks_or_sprints_load_ranked_in_key_order() {
+        let mut ws = Workspace::new("T");
+        ws.add_user("ann", "Ann").unwrap();
+        ws.create_project("A", "A", trackcraft_model::ProjectKind::Software, None).unwrap();
+        let now = trackcraft_model::Timestamp::from_timestamp(1_793_448_000, 0).unwrap();
+        for n in 0..12 {
+            let new = trackcraft_model::NewIssue { project: "A".into(), summary: format!("x{n}"), ..Default::default() };
+            ws.create_issue(new, "ann", now).unwrap();
+        }
+        let sprint = ws.create_sprint("A", None, None, None, None).unwrap();
+        ws.set_sprint(&["A-2".into()], Some(sprint), "ann", now).unwrap();
+        let s = to_string(&ws).unwrap();
+        assert!(s.contains("\"rank\"") && s.contains("\"sprints\""));
+        assert_eq!(from_str(&s).unwrap(), ws, "a valid file round-trips unchanged");
+        let mut v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        v["workspace"].as_object_mut().unwrap().remove("sprints");
+        for i in v["workspace"]["issues"].as_object_mut().unwrap().values_mut() {
+            i.as_object_mut().unwrap().remove("rank");
+        }
+        // A hostile rank on one issue is repaired too.
+        v["workspace"]["issues"]["A-3"]["rank"] = serde_json::json!("ZZ not a rank");
+        let old = from_str(&v.to_string()).unwrap();
+        let order: Vec<String> = old.rank_order(&old.project("A").unwrap().key).iter().map(ToString::to_string).collect();
+        let want: Vec<String> = (1..=12).map(|n| format!("A-{n}")).collect();
+        assert_eq!(order, want);
+        assert!(old.issues.values().all(|i| trackcraft_model::is_valid_rank(&i.rank)));
+        assert_eq!(old.issue("A-2").unwrap().sprint, None, "dangling sprint reference dropped");
+        assert!(old.sprints.is_empty());
     }
 
     #[test]

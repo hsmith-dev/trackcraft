@@ -4,7 +4,7 @@
 //! `status.name`, `statusCategory`, `version.number`) so agents that know those APIs read ours.
 
 use serde_json::{Value, json};
-use trackcraft_model::{Change, Issue, Page, Project, Space, Workspace};
+use trackcraft_model::{Change, Issue, Page, Project, Space, Sprint, StatusCategory, Workspace};
 
 pub fn issue(ws: &Workspace, i: &Issue) -> Value {
     let cat = ws.status_category(i);
@@ -27,7 +27,52 @@ pub fn issue(ws: &Workspace, i: &Issue) -> Value {
         "comments": i.comments.iter().map(|c| json!({"id": c.id.0, "author": c.author, "body": c.body.to_markdown(), "created": c.created.to_rfc3339()})).collect::<Vec<_>>(),
         "links": i.links.iter().map(|l| json!({"type": l.kind.outward(), "key": l.target.to_string()})).collect::<Vec<_>>(),
         "history": history_groups(i).len(),
+        "rank": i.rank,
+        "sprint": i.sprint.and_then(|id| ws.sprints.get(&id)).map(|s| json!({"id": s.id.0, "name": s.name, "state": s.state.name()})),
+        "closedSprints": i.past_sprints.iter().filter_map(|id| ws.sprints.get(id)).map(|s| json!({"id": s.id.0, "name": s.name})).collect::<Vec<_>>(),
     })
+}
+
+/// A sprint in the Jira Agile REST shape (`id`, `name`, `state`, `goal`, `startDate`,
+/// `endDate`, `completeDate`), plus its project and issue count.
+pub fn sprint(ws: &Workspace, s: &Sprint) -> Value {
+    let issues = ws.issues.values().filter(|i| i.sprint == Some(s.id) || i.past_sprints.contains(&s.id)).count();
+    json!({
+        "id": s.id.0,
+        "project": s.project.as_str(),
+        "name": s.name,
+        "state": s.state.name(),
+        "goal": s.goal,
+        "startDate": s.start.map(|t| t.to_rfc3339()),
+        "endDate": s.end.map(|t| t.to_rfc3339()),
+        "completeDate": s.completed.map(|t| t.to_rfc3339()),
+        "issueCount": issues,
+    })
+}
+
+/// A backlog / sprint row: the brief plus what planning needs (points, rank, parent).
+pub fn planning_row(ws: &Workspace, i: &Issue) -> Value {
+    let mut v = issue_brief(ws, i);
+    if let Some(o) = v.as_object_mut() {
+        o.insert("storyPoints".into(), json!(i.story_points));
+        o.insert("rank".into(), json!(i.rank));
+        o.insert("parent".into(), json!(i.parent.as_ref().map(ToString::to_string)));
+    }
+    v
+}
+
+/// Points and per-category counts of a set of issues (sprint headers).
+pub fn tally<'a>(ws: &Workspace, issues: impl IntoIterator<Item = &'a Issue>) -> (f64, Value) {
+    let (mut points, mut todo, mut doing, mut done) = (0.0, 0u64, 0u64, 0u64);
+    for i in issues {
+        points += i.story_points.unwrap_or(0.0);
+        match ws.status_category(i) {
+            StatusCategory::ToDo => todo += 1,
+            StatusCategory::InProgress => doing += 1,
+            StatusCategory::Done => done += 1,
+        }
+    }
+    (points, json!({"todo": todo, "inProgress": doing, "done": done}))
 }
 
 /// History entries grouped by change id (one group per command), oldest first.

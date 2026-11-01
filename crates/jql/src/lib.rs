@@ -7,6 +7,8 @@
 //! Supported today: `AND`/`OR`/`NOT`, parentheses, `= != > >= < <= ~ !~ IN NOT IN IS IS NOT`,
 //! `EMPTY`/`NULL`, quoted field names, `ORDER BY f [ASC|DESC], …`, the functions
 //! `currentUser()`, `now()`, `startOfDay()`, `endOfDay()`, and relative dates (`-7d`, `2w`, `-4h`).
+//! List functions that need the data (`sprint IN openSprints()`, `closedSprints()`) are answered
+//! by the record through [`Record::function`].
 //!
 //! History operators (from the public JQL reference): `WAS`, `WAS NOT`, `WAS IN (…)`,
 //! `WAS NOT IN (…)` and `CHANGED`, with the predicates `AFTER`, `BEFORE`, `ON`, `DURING (a, b)`,
