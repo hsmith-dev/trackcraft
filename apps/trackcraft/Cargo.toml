@@ -13,7 +13,7 @@ trackcraft-engine.workspace = true
 trackcraft-store.workspace = true
 trackcraft-ui-egui.workspace = true
 egui.workspace = true
-eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "persistence"] }
 serde_json.workspace = true
 # Control-channel key (OS randomness) and `ui.screenshot` PNGs; both already in the lock.
 getrandom = "0.3"

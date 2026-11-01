@@ -50,6 +50,9 @@ pub(crate) fn context(app: &TrackApp) -> String {
             Ok(p) => format!("Page version {}", p.version),
             Err(_) => "Page".into(),
         },
+        // The directory itself shows the count; the bar names the place.
+        View::Projects => "Project directory".into(),
+        View::Spaces => "Space directory".into(),
     };
     middle_truncate(&s, 80)
 }

@@ -1,0 +1,44 @@
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"SRE","name":"Site Reliability","lead":"jo"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"MOB","name":"Mobile App","lead":"riley"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"WEB","name":"Website Refresh"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"DATA","name":"Data Platform","lead":"jo"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"SEC","name":"Security Reviews"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"INFRA","name":"Infrastructure"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"PAY","name":"Payments"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"HR","name":"People Ops"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"DOCS","name":"Documentation"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"QA","name":"Quality Lab"}}}
+{"method":"engine.execute","params":{"command":"project.create","params":{"key":"API","name":"Public API"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"OPSW","name":"Operations Wiki"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"DES","name":"Design System"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"ONB","name":"Onboarding"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"RFC","name":"RFCs"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"MEET","name":"Meeting Notes"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"SUP","name":"Support Playbooks"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"LEGAL","name":"Legal"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"MKT","name":"Marketing"}}}
+{"method":"engine.execute","params":{"command":"space.create","params":{"key":"ARCH","name":"Architecture"}}}
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"ui.sidebar","params":{"star":"project:LUME"}}
+{"method":"ui.sidebar","params":{"star":"space:ENG"}}
+{"method":"ui.sidebar","params":{"star":"filter:My open issues"}}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-4"}}
+{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"method":"ui.back"}
+{"shot":"/tmp/tc-shots/sidebar.png"}
+{"method":"ui.sidebar","params":{"filter":"ops"}}
+{"shot":"/tmp/tc-shots/sidebar-filter.png"}
+{"method":"ui.sidebar","params":{"filter":""}}
+{"method":"ui.navigate","params":{"view":"projects"}}
+{"shot":"/tmp/tc-shots/projects.png"}
+{"method":"ui.navigate","params":{"view":"spaces"}}
+{"shot":"/tmp/tc-shots/spaces.png"}
+{"method":"ui.palette"}
+{"shot":"/tmp/tc-shots/palette-recent.png"}
+{"method":"ui.palette"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}
+{"shot":"/tmp/tc-shots/sidebar-dark.png"}
+{"method":"ui.navigate","params":{"view":"projects"}}
+{"shot":"/tmp/tc-shots/projects-dark.png"}
