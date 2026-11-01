@@ -137,7 +137,8 @@ impl Workspace {
         self.check_unique_title(&skey, &t, None)?;
         let position = u32::try_from(self.children(parent).len()).unwrap_or(u32::MAX);
         let id = self.ids.next_id();
-        self.pages.insert(id, new_page(id, skey, Some(parent), position, t, new.body, author, now));
+        self.pages.insert(id, new_page(id, skey, Some(parent), position, t, new.body, author.clone(), now));
+        self.notify_page_saved(id, &author, now); // M4.5
         Ok(id)
     }
 
@@ -173,10 +174,12 @@ impl Workspace {
         if let Some(b) = edit.body {
             p.body = b;
         }
-        p.author = author;
+        p.author = author.clone();
         p.updated = now;
         p.message = edit.message.chars().take(1000).collect();
-        Ok(p.version)
+        let v = p.version;
+        self.notify_page_saved(id, &author, now); // M4.5
+        Ok(v)
     }
 
     /// Restores an earlier version as a new version (history is never rewritten).
@@ -405,6 +408,7 @@ impl Workspace {
         for g in &gone {
             self.pages.remove(g);
         }
+        self.forget_watched(&gone.iter().copied().map(crate::Target::Page).collect::<Vec<_>>()); // M4.5
         Ok(gone)
     }
 

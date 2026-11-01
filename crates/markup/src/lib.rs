@@ -11,6 +11,9 @@
 
 pub mod diff;
 mod md;
+mod mention;
+
+pub use mention::MAX_MENTIONS;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};

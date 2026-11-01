@@ -3,6 +3,7 @@
 //! Blocks: `#`–`######` headings, `-`/`*`/`+` and `1.` lists (nesting by indentation), fenced
 //! code, `>` quotes, `---` rules, paragraphs (a trailing two spaces or `\` is a hard break).
 //! Inline: `**strong**`, `*em*`/`_em_`, `` `code` ``, `~~strike~~`, `[text](url)`.
+//! Mentions: [`Doc::from_markdown_mentions`] also turns `@id` (a known user) into a mention.
 //! Hostile input: nesting is capped at [`crate::MAX_DEPTH`]; deeper lists flatten.
 
 use crate::{Block, Doc, Inline, MAX_DEPTH, Mark};

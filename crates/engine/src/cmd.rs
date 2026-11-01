@@ -4,6 +4,7 @@ mod agile;
 mod file;
 mod import;
 mod issue;
+mod notify;
 mod wiki;
 
 use crate::CommandSpec;
@@ -15,5 +16,6 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(agile::commands());
     v.extend(wiki::commands());
     v.extend(import::commands());
+    v.extend(notify::commands()); // M4.5
     v
 }

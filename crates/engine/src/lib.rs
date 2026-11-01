@@ -327,6 +327,8 @@ impl Session {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_notify;
+#[cfg(test)]
 mod tests_sync;
 #[cfg(test)]
-mod tests_wiki;
+mod tests_wiki; // M4.5

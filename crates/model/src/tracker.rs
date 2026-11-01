@@ -349,6 +349,7 @@ impl Workspace {
         let reporter = issue.reporter.clone();
         self.issues.insert(key.clone(), issue);
         self.record(&key, &reporter, now, vec![("created", None, None)]);
+        self.notify_issue_created(&key, now); // M4.5
         Ok(key)
     }
 
@@ -394,11 +395,13 @@ impl Workspace {
     /// new text, not full copies.
     pub fn set_description(&mut self, key: &str, d: Doc, author: &str, now: Timestamp) -> Result<()> {
         let to = preview(&d);
+        let had = self.issue(key).map(|i| self.mentioned_in(&i.description)).unwrap_or_default(); // M4.5
         let i = self.issue_mut(key)?;
         let from = preview(&std::mem::replace(&mut i.description, d));
         i.updated = now;
         let k = i.key.clone();
         self.record(&k, author, now, vec![("description", from, to)]);
+        self.notify_description(&k, &had, author, now); // M4.5
         Ok(())
     }
 
@@ -439,7 +442,11 @@ impl Workspace {
         let from = std::mem::replace(&mut i.assignee, u.clone());
         i.updated = now;
         let k = i.key.clone();
+        let changed = from != u; // M4.5
         self.record(&k, author, now, vec![("assignee", from, u)]);
+        if changed {
+            self.notify_assigned(&k, author, now);
+        } // M4.5
         Ok(())
     }
 
@@ -460,10 +467,12 @@ impl Workspace {
         let was_resolved = i.resolved.is_some();
         i.resolved = if target.category == StatusCategory::Done { Some(now) } else { None };
         i.updated = now;
+        let resolved_now = !was_resolved && i.resolved.is_some(); // M4.5
         let resolution = |r: bool| r.then(|| RESOLUTION_DONE.to_string());
         let items = vec![("status", Some(from), Some(target.name)), ("resolution", resolution(was_resolved), resolution(i.resolved.is_some()))];
         let k = i.key.clone();
         self.record(&k, author, now, items);
+        self.notify_transition(&k, author, now, resolved_now); // M4.5
         Ok(())
     }
 
@@ -484,6 +493,7 @@ impl Workspace {
         i.updated = now;
         let k = i.key.clone();
         self.record(&k, &author, now, vec![("comment", None, to)]);
+        self.notify_issue_comment(&k, id, &author, now); // M4.5
         Ok(id)
     }
 
@@ -694,6 +704,7 @@ impl Workspace {
         for (k, items) in changes {
             self.record(&k, author, now, items);
         }
+        self.forget_watched(&gone.iter().cloned().map(crate::Target::Issue).collect::<Vec<_>>()); // M4.5
         Ok(gone)
     }
 }

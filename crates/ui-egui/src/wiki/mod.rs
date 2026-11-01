@@ -240,6 +240,7 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             more_menu(app, ui, t, &p); // UI-29, UI-30
+            crate::inbox::watch_toggle(app, ui, trackcraft_model::Target::Page(id)); // M4.5
             if !is_home && ui.small_button("Delete").on_hover_text("Delete this page and its children").clicked() {
                 app.push(Action::Run {
                     id: "page.delete",
