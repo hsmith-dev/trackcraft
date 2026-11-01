@@ -1,6 +1,17 @@
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"method":"ui.theme","params":{"dark":false}}
 {"method":"ui.key","params":{"key":"?"}}
 {"shot":"/tmp/tc-shots/keys-help.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.palette"}
+{"shot":"/tmp/tc-shots/keys-palette.png"}
 {"method":"ui.key","params":{"key":"Escape"}}
 {"method":"ui.theme","params":{"dark":true}}
 {"method":"ui.key","params":{"key":"?"}}
 {"shot":"/tmp/tc-shots/keys-help-dark.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.palette"}
+{"shot":"/tmp/tc-shots/keys-palette-dark.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.key","params":{"key":"t"}}
+{"shot":"/tmp/tc-shots/keys-status-menu-dark.png"}

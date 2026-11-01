@@ -83,6 +83,10 @@ pub(crate) struct IssueUi {
     pub focus_comment: bool,
     /// Focus the description editor next frame (`e`).
     pub focus_description: bool,
+    /// Open the assignee picker next frame (`a`).
+    pub open_assignee: bool,
+    /// Open the status (transition) menu next frame (`t`).
+    pub open_status: bool,
 }
 
 #[derive(Debug, Default)]
@@ -174,6 +178,10 @@ pub struct TrackApp {
     pub(crate) jql_total: usize,
     jql_paged: String,
     jql_ran_start: usize,
+    /// The labels prompt on a page (`l`): the page and the labels typed so far.
+    pub(crate) page_labels: Option<(Id, String)>,
+    /// The first key of a two-key chord (`G then I`) and when it was pressed.
+    pub(crate) chord: Option<(keys::Chord, f64)>,
 }
 
 impl TrackApp {
@@ -214,6 +222,8 @@ impl TrackApp {
             jql_total: 0,
             jql_paged: String::new(),
             jql_ran_start: 0,
+            page_labels: None,
+            chord: None,
         }
     }
 
@@ -306,45 +316,15 @@ impl TrackApp {
         ctx.set_visuals(t.visuals());
         let typing = ctx.egui_wants_keyboard_input();
         let guarding = self.guard.is_some();
-        let modal = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.help || guarding;
+        let dialog = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.page_labels.is_some();
+        let modal = dialog || self.help || guarding;
+        let gate = keys::Gate { typing, modal, help_only: self.help && !dialog && !guarding, guarding };
         let injected = std::mem::take(&mut self.injected);
-        ctx.input_mut(|i| {
+        let fired = ctx.input_mut(|i| {
             i.events.extend(injected);
-            use egui::{Key, KeyboardShortcut, Modifiers};
-            let cmd = |k| KeyboardShortcut::new(Modifiers::COMMAND, k);
-            let cmd_shift = |k| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, k);
-            if !guarding && (i.consume_shortcut(&cmd(Key::K)) || i.consume_shortcut(&cmd_shift(Key::P))) {
-                self.pending.push(Action::TogglePalette);
-            }
-            if i.consume_shortcut(&cmd_shift(Key::Z)) {
-                self.pending.push(Action::Run { id: "edit.redo", params: json!({}), then: Then::Nothing });
-            } else if i.consume_shortcut(&cmd(Key::Z)) && !typing {
-                self.pending.push(Action::Run { id: "edit.undo", params: json!({}), then: Then::Nothing });
-            }
-            if i.consume_shortcut(&cmd_shift(Key::S)) {
-                self.file_request = Some(FileRequest::SaveAs);
-            } else if i.consume_shortcut(&cmd(Key::S)) {
-                self.file_request = Some(FileRequest::Save);
-            }
-            if i.consume_shortcut(&cmd(Key::O)) {
-                self.file_request = Some(FileRequest::Open);
-            }
-            if !guarding && i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft)) {
-                self.pending.push(Action::Back);
-            }
-            // Single keys: never while typing or behind a dialog (`?` also closes its own overlay).
-            if !typing && (!modal || self.help) && keys::consume_help(i) {
-                self.help = !self.help;
-            }
-            if !typing && !modal {
-                if i.consume_key(Modifiers::NONE, Key::C) {
-                    self.pending.push(Action::OpenCreate(None));
-                }
-                if i.consume_key(Modifiers::NONE, Key::Slash) {
-                    self.focus_search = true;
-                }
-                keys::view_keys(self, i);
-            }
+            use egui::{Key, Modifiers};
+            // The scoped keymap (see `keys.rs`): registry shortcuts plus UI-only bindings.
+            let fired = keys::dispatch(self, i, gate);
             if guarding {
                 // Escape on "Discard your changes?" is "Keep editing"; consumed so the dialog
                 // underneath does not also see it.
@@ -362,12 +342,17 @@ impl TrackApp {
                     }
                     self.palette = None;
                     self.new_page = None;
+                    self.page_labels = None;
                     self.help = false;
                 } else if matches!(self.view, View::Issue(_)) {
                     keys::cancel_issue_edits(self);
                 }
             }
+            fired
         });
+        for act in fired {
+            keys::run(self, act);
+        }
         let now = ctx.input(|i| i.time);
         if let Some((_, at)) = &mut self.toast {
             if *at < 0.0 {
@@ -398,6 +383,7 @@ impl TrackApp {
         });
         issues::create_dialog(self, ui.ctx(), &t);
         wiki::new_page_dialog(self, ui.ctx(), &t);
+        keys::labels_dialog(self, ui.ctx(), &t);
         palette::show(self, ui.ctx(), &t);
         keys::help(self, ui.ctx(), &t);
         guard::dialog(self, ui.ctx(), &t);

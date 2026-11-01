@@ -82,7 +82,7 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
         }
     });
     ui.add_space(12.0);
-    // `e` edits the page: see `keys::view_keys` (ignored while typing or behind a dialog).
+    // `e` edits the page, `c` adds a child, `l` edits labels: see `keys.rs`.
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.set_max_width(820.0);
         if is_home && p.body.is_empty() {

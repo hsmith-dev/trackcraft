@@ -227,7 +227,7 @@ fn inverse(outward: &str) -> String {
 fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, cat: StatusCategory, transitions: &[String]) {
     let (fill, fg) = t.status(cat);
     let l_status = ui.label(RichText::new("Status").color(t.muted).size(12.0)).id;
-    ComboBox::from_id_salt("status")
+    let status = ComboBox::from_id_salt("status")
         .selected_text(RichText::new(issue.status.to_uppercase()).strong().color(fg))
         .width(180.0)
         .show_ui(ui, |ui| {
@@ -242,6 +242,10 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
         })
         .response
         .labelled_by(l_status);
+    // `t` (see `keys.rs`) opens the menu.
+    if std::mem::take(&mut app.issue_ui.open_status) {
+        egui::Popup::open_id(ui.ctx(), status.id.with("popup"));
+    }
     let _ = fill;
     ui.add_space(10.0);
     card(ui, t, "Details", |ui| {
@@ -252,7 +256,7 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
                         who(ui, t, ws, issue.assignee.as_deref(), 20.0);
-                        ComboBox::from_id_salt("assignee")
+                        let picker = ComboBox::from_id_salt("assignee")
                             .selected_text(name_of(ws, issue.assignee.as_deref()))
                             .width(150.0)
                             .show_ui(ui, |ui| {
@@ -271,9 +275,13 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
                             })
                             .response
                             .labelled_by(l_assignee);
+                        // `a` (see `keys.rs`) opens the picker.
+                        if std::mem::take(&mut app.issue_ui.open_assignee) {
+                            egui::Popup::open_id(ui.ctx(), picker.id.with("popup"));
+                        }
                     });
                     if issue.assignee.as_deref() != Some(app.session.user.as_str())
-                        && ui.link(RichText::new("Assign to me").size(12.0)).on_hover_text("Assign to me (A)").clicked()
+                        && ui.link(RichText::new("Assign to me").size(12.0)).on_hover_text("Assign to me (I)").clicked()
                     {
                         acts.push(Action::Run { id: "issue.assignToMe", params: json!({"key": k}), then: Then::Nothing });
                     }
