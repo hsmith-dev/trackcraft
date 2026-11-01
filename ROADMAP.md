@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **68 / 116 (58.6%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
-| Ready for real work | **~42%**: teams can import, plan sprints and keep a wiki, edit the same workspace live from several desktop apps through `trackcraft-server`, and script it over Jira-compatible REST; no permissions, browser editing of server workspaces, HTTPS in the client or notifications yet | estimated |
-| Commands | 63 | measured (`trackcraft-cli commands`) |
+| Feature catalog coverage | **75 / 116 (64.7%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ready for real work | **~50%**: a team can run a shared server with roles and page restrictions, edit live from desktop (HTTP/HTTPS) and browser clients, get notified, import from Jira/Confluence and script it over Jira-compatible REST; missing: admin UI for permissions, email, attachments, custom fields, dashboards/reports, packaged releases | estimated |
+| Commands | 78 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -30,11 +30,21 @@ parity.
 | M1 | Desktop app (egui): sidebar, issue list + JQL bar, issue view/edit, board, page tree, page view/edit | landed; polish open |
 | M2 | Tracker depth: backlog, sprints, rank, versions, components, custom fields, workflow editor, activity history, saved filters | |
 | M3 | Wiki depth: rich editor (tables, panels, tasks, macros), comments, version diff, templates, attachments, export | |
-| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | REST + tokens (M4.1), live sync (M4.2), web client in local mode (M4.4) landed; permissions, notifications, browser sync open |
+| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | REST + tokens, live sync, permissions, in-app notifications, browser and HTTPS clients landed; admin UI and email open |
 | M5 | Compatibility: Jira REST v3 and Confluence REST v2 subsets, Jira/Confluence importers | REST subsets and importers landed; depth open |
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-11-01 · M4.3, M4.5, M4.6, M4.7** (four agents in parallel) — Permissions: workspace,
+  project and space roles plus inherited page restrictions, enforced in the engine, REST and
+  sync (per-user filtered snapshots, `sync.skip` placeholders, forced resync on access changes;
+  `docs/permissions.md`); in-app notifications and watchers with `@mentions`, stored in the
+  workspace so sync delivers them; the browser edits server workspaces live (one-time SSE
+  tickets); HTTPS in the desktop client (rustls + ring, OS roots) and a status-bar connection
+  indicator. Integration fix: notifications about hidden things were leaking through per-user
+  snapshots; now filtered, with regression tests. Verified on a live server: viewer 403 on
+  create, hidden project 404 and absent from search and snapshot.
 
 - **2026-11-01 · M4.2, M4.4, fonts, UI fixes** (four agents in parallel) — Live sync: a server
   journal streamed over SSE, deterministic replay in the engine, desktop remote mode
