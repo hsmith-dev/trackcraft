@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use serde_json::Value;
 use tokio::sync::Notify;
 use trackcraft_engine::Session;
+use trackcraft_engine::sync::{JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES, Journal};
 
 /// Credentials as a client sent them (`Authorization` header).
 #[derive(Debug, Clone, Copy)]
@@ -86,13 +87,24 @@ pub struct Hosted {
     path: Option<PathBuf>,
     session: Mutex<Session>,
     saved: AtomicU64,
+    /// Identifies this run's journal (revisions restart with the process): see `docs/sync.md`.
+    epoch: String,
 }
 
 impl Hosted {
     /// `path`: where it is saved (`None` = in memory only, e.g. tests).
-    pub fn new(name: &str, session: Session, path: Option<PathBuf>) -> Self {
+    /// The session's journal is switched on here (every change becomes a sync revision).
+    pub fn new(name: &str, mut session: Session, path: Option<PathBuf>) -> Self {
+        if session.journal().is_none() {
+            session.enable_journal(Journal::new(JOURNAL_MAX_ENTRIES, JOURNAL_MAX_BYTES));
+        }
         let rev = session.revision();
-        Hosted { name: name.to_string(), path, session: Mutex::new(session), saved: AtomicU64::new(rev) }
+        Hosted { name: name.to_string(), path, session: Mutex::new(session), saved: AtomicU64::new(rev), epoch: new_epoch() }
+    }
+
+    /// The journal epoch: revisions are only meaningful within one.
+    pub fn epoch(&self) -> &str {
+        &self.epoch
     }
 
     pub fn name(&self) -> &str {
@@ -117,6 +129,15 @@ impl Hosted {
     pub fn mark_saved(&self, revision: u64) {
         self.saved.store(revision, Ordering::SeqCst);
     }
+}
+
+/// A fresh epoch: start time in nanoseconds plus a process-wide counter, in hex. Unique per
+/// hosted workspace per run, which is all it needs to be.
+fn new_epoch() -> String {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let t = trackcraft_engine::system_now();
+    let nanos = t.timestamp().unsigned_abs().wrapping_mul(1_000_000_000).wrapping_add(u64::from(t.timestamp_subsec_nanos()));
+    format!("{nanos:x}{:x}", N.fetch_add(1, Ordering::SeqCst))
 }
 
 /// Every hosted workspace, plus a signal raised after each change (the saver waits on it).

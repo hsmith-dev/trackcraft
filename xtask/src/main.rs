@@ -26,12 +26,16 @@ const LAYERS: &[(&str, u8)] = &[
     ("trackcraft-core", 0),
     ("trackcraft-markup", 1),
     ("trackcraft-jql", 1),
+    // Live-sync wire types: serde only, app-agnostic (extractable to craft-collab, docs/sync.md).
+    ("trackcraft-sync-proto", 1),
     ("trackcraft-model", 2),
     ("trackcraft-store", 3),
     ("trackcraft-import", 3),
     ("trackcraft-engine", 4),
     ("trackcraft-mcp", 5),
     ("trackcraft-api", 5),
+    // The blocking sync client (std TcpStream; no async runtime): desktop remote mode.
+    ("trackcraft-sync-client", 5),
     // The mountable server library sits above the API routes it serves; no UI crates (checked
     // below by name, since L6 alone would allow them).
     ("trackcraft-server-lib", 6),
@@ -56,6 +60,7 @@ const WASM_CRATES: &[&str] = &[
     "trackcraft-store",
     "trackcraft-import",
     "trackcraft-engine",
+    "trackcraft-sync-proto",
     "trackcraft-ui-egui",
 ];
 

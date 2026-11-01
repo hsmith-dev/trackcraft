@@ -22,6 +22,8 @@ trackcraft-mcp = { path = "crates/mcp" }
 trackcraft-api = { path = "crates/api" }
 trackcraft-server-lib = { path = "crates/server" }
 trackcraft-import = { path = "crates/import" }
+trackcraft-sync-proto = { path = "crates/sync-proto" }
+trackcraft-sync-client = { path = "crates/sync-client" }
 trackcraft-ui-egui = { path = "crates/ui-egui" }
 
 # foundation
@@ -41,6 +43,9 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 sha2 = "0.10"
 getrandom = "0.3"
 hex = "0.4"
+# Streams for the sync endpoint's Server-Sent Events (axum's Sse takes a Stream). Already in the lock
+# through axum; MIT OR Apache-2.0.
+futures-util = { version = "0.3", default-features = false }
 # imports (crates/import): reading Confluence export .zip files. zip is MIT; deflate only,
 # through flate2 (MIT OR Apache-2.0) on its pure-Rust miniz_oxide backend (MIT OR Zlib OR Apache-2.0).
 zip = { version = "3", default-features = false, features = ["deflate-flate2"] }

@@ -1,0 +1,24 @@
+[package]
+name = "trackcraft-sync-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "TrackCraft live-sync client: snapshot, SSE event stream, optimistic commands with an offline queue (blocking, std only)"
+
+[dependencies]
+trackcraft-engine.workspace = true
+trackcraft-store.workspace = true
+trackcraft-sync-proto.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+trackcraft-server-lib.workspace = true
+trackcraft-api.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync"] }
+
+[lints]
+workspace = true

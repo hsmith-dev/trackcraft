@@ -12,6 +12,8 @@ description = "TrackCraft desktop app"
 trackcraft-engine.workspace = true
 trackcraft-store.workspace = true
 trackcraft-ui-egui.workspace = true
+# M4.2 remote mode (std-only blocking client; no TLS or HTTP crates).
+trackcraft-sync-client.workspace = true
 egui.workspace = true
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "persistence"] }
 serde_json.workspace = true

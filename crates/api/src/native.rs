@@ -4,6 +4,7 @@
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::get, routing::post};
 use serde_json::{Value, json};
+use trackcraft_engine::sync::proto::Origin;
 
 use crate::ctx::{Body, Ctx};
 use crate::error::{ApiError, Flavor};
@@ -34,13 +35,36 @@ async fn commands(cx: Ctx) -> Result<Response, ApiError> {
     .await
 }
 
-/// `{"command": "issue.create", "params": {…}}` → `{"result": …}`.
+/// `{"command": "issue.create", "params": {…}, "origin": {"client", "seq"} (sync clients)}` →
+/// `{"command", "result", "rev", "entry", "duplicate"}`. `rev` is the workspace's sync revision
+/// after the command and `entry` the journal entry it produced (`null` for queries and no-ops).
+/// A sync client's `origin.seq` that was already applied answers `duplicate: true` without
+/// running anything (a resend after a lost response).
 async fn command(cx: Ctx, Body(b): Body) -> Result<Response, ApiError> {
     let id = b.get("command").and_then(Value::as_str).map(str::to_string).ok_or_else(|| ApiError::bad(Flavor::Native, "missing \"command\""))?;
     let params = b.get("params").cloned().unwrap_or_else(|| json!({}));
+    let origin = match b.get("origin") {
+        None | Some(Value::Null) => None,
+        Some(o) => {
+            let o: Origin =
+                serde_json::from_value(o.clone()).map_err(|_| ApiError::bad(Flavor::Native, "\"origin\" must be {\"client\": id, \"seq\": n}"))?;
+            if !Origin::valid_client(&o.client) {
+                return Err(ApiError::bad(Flavor::Native, "\"origin.client\" must be 1-64 of A-Z a-z 0-9 - _"));
+            }
+            Some(o)
+        }
+    };
     cx.run(move |tx| {
-        let result = tx.run(&id, params)?;
-        Ok(Json(json!({"command": id, "result": result})).into_response())
+        if let Some(o) = &origin
+            && tx.s.journal().and_then(|j| j.applied_seq(&o.client)).is_some_and(|max| o.seq <= max)
+        {
+            return Ok(Json(json!({"command": id, "result": null, "rev": tx.s.sync_rev(), "entry": null, "duplicate": true})).into_response());
+        }
+        let before = tx.s.sync_rev();
+        let result = tx.run_from(&id, params, origin)?;
+        let rev = tx.s.sync_rev();
+        let entry = if rev != before { tx.s.journal().and_then(|j| j.last()).cloned() } else { None };
+        Ok(Json(json!({"command": id, "result": result, "rev": rev, "entry": entry, "duplicate": false})).into_response())
     })
     .await
 }

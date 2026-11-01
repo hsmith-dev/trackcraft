@@ -11,6 +11,7 @@ pub mod cmd;
 mod json;
 mod params;
 pub mod sample;
+pub mod sync;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -77,6 +78,39 @@ pub fn command(id: &str) -> Option<&'static CommandSpec> {
     commands().iter().find(|c| c.id == id)
 }
 
+/// Commands that act on the host or on this session's own history rather than on the shared
+/// workspace. The server API refuses them, and so does a session in remote mode
+/// ([`Session::set_remote`]): `file.open` / `workspace.import` read host paths (and would not
+/// replay identically elsewhere), undo would undo another user's change.
+pub const LOCAL_ONLY: &[&str] = &["file.open", "file.save", "workspace.new", "workspace.import", "edit.undo", "edit.redo", "user.switch"];
+
+/// A mutating command that changed the workspace, as the `after_command` observer sees it
+/// ([`Session::set_after_command`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Executed {
+    pub command: String,
+    pub params: Value,
+    pub actor: String,
+    /// The pinned clock the command ran with.
+    pub at: Timestamp,
+    /// The workspace id counter before the command ([`sync::ids_next`]).
+    pub ids_before: u64,
+    /// [`Session::revision`] after it.
+    pub revision: u64,
+}
+
+/// Observer called after each local command that changed the workspace.
+pub type AfterCommand = Box<dyn FnMut(&Executed) + Send>;
+
+/// How `Session::exec` records a command.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// `Session::run`: undo step (unless remote), journal entry, observer.
+    Local,
+    /// Replaying someone else's command: none of those.
+    Replay,
+}
+
 /// The workspace being edited, who is editing it, and its history.
 pub struct Session {
     pub ws: Workspace,
@@ -89,6 +123,13 @@ pub struct Session {
     /// Bumped on every change to the workspace (see [`Session::revision`]).
     revision: u64,
     clock: fn() -> Timestamp,
+    /// While a command runs, every `now()` returns this (one command, one timestamp; replays
+    /// pin it to the journal entry's `at`).
+    pinned: Option<Timestamp>,
+    /// Remote mode: no undo history, [`LOCAL_ONLY`] commands refused.
+    remote: bool,
+    after: Option<AfterCommand>,
+    sync: sync::SyncState,
 }
 
 pub fn system_now() -> Timestamp {
@@ -99,7 +140,20 @@ pub fn system_now() -> Timestamp {
 
 impl Session {
     pub fn new(ws: Workspace, user: &str) -> Self {
-        Session { ws, user: user.to_string(), path: None, dirty: false, undo: vec![], redo: vec![], revision: 0, clock: system_now }
+        Session {
+            ws,
+            user: user.to_string(),
+            path: None,
+            dirty: false,
+            undo: vec![],
+            redo: vec![],
+            revision: 0,
+            clock: system_now,
+            pinned: None,
+            remote: false,
+            after: None,
+            sync: sync::SyncState::default(),
+        }
     }
 
     /// A session on the sample workspace, acting as its first user.
@@ -116,7 +170,29 @@ impl Session {
     }
 
     pub fn now(&self) -> Timestamp {
-        (self.clock)()
+        self.pinned.unwrap_or_else(|| (self.clock)())
+    }
+
+    /// Remote mode (a client of a sync server): local commands keep no undo history (undo would
+    /// revert other people's changes) and [`LOCAL_ONLY`] commands are refused. Turning it on
+    /// drops the current undo/redo stacks.
+    pub fn set_remote(&mut self, on: bool) {
+        self.remote = on;
+        if on {
+            self.undo.clear();
+            self.redo.clear();
+        }
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.remote
+    }
+
+    /// Installs (or with `None` removes) the observer called after every local command that
+    /// changed the workspace — how a sync client forwards commands without the UI knowing.
+    /// Replays ([`Session::apply_remote`]) never call it.
+    pub fn set_after_command(&mut self, f: Option<AfterCommand>) {
+        self.after = f;
     }
 
     pub fn can_undo(&self) -> bool {
@@ -150,10 +226,23 @@ impl Session {
     /// Runs a command by id. A failing command leaves the workspace exactly as it was; an escaped
     /// panic (a bug) is turned into an error and the workspace is restored.
     pub fn run(&mut self, id: &str, params: &Value) -> CmdResult {
+        self.exec(id, params, Mode::Local).map(|(v, _)| v)
+    }
+
+    /// The one place commands run. Returns the result and whether the workspace changed.
+    fn exec(&mut self, id: &str, params: &Value, mode: Mode) -> Result<(Value, bool), String> {
         let spec = command(id).ok_or_else(|| format!("unknown command '{}'", id.chars().take(80).collect::<String>()))?;
+        if (self.remote || mode == Mode::Replay) && LOCAL_ONLY.contains(&spec.id) {
+            return Err(format!("{} is not available while connected to a server", spec.id));
+        }
         if let Some(why) = (spec.enabled)(self) {
             return Err(format!("{} is unavailable: {why}", spec.id));
         }
+        // One command, one timestamp (a replay has already pinned the entry's).
+        let pinned_here = self.pinned.is_none();
+        let at = self.now();
+        self.pinned = Some(at);
+        let ids_before = sync::ids_next(&self.ws);
         let before = spec.mutates.then(|| self.ws.clone());
         // Every history entry one command records shares one change id.
         if spec.mutates {
@@ -161,26 +250,45 @@ impl Session {
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (spec.run)(self, params)));
         self.ws.end_batch();
+        if pinned_here {
+            self.pinned = None;
+        }
         let result = match result {
             Ok(r) => r,
             Err(_) => Err(format!("internal error in {}: the workspace was restored (please report this)", spec.id)),
         };
+        let mut changed = false;
         if let Some(before) = before {
             match &result {
                 Ok(_) if before != self.ws => {
-                    self.undo.push(before);
-                    if self.undo.len() > UNDO_MAX {
-                        self.undo.remove(0);
+                    changed = true;
+                    if mode == Mode::Local && !self.remote {
+                        self.undo.push(before);
+                        if self.undo.len() > UNDO_MAX {
+                            self.undo.remove(0);
+                        }
+                        self.redo.clear();
                     }
-                    self.redo.clear();
                     self.dirty = true;
                     self.bump();
+                    if mode == Mode::Local {
+                        self.record(spec.id, params, at, ids_before);
+                    }
                 }
                 Ok(_) => {}
                 Err(_) => self.ws = before,
             }
         }
-        result
+        result.map(|v| (v, changed))
+    }
+
+    /// After a local change: the journal entry (servers) and the observer (sync clients).
+    fn record(&mut self, id: &str, params: &Value, at: Timestamp, ids_before: u64) {
+        let actor = self.user.clone();
+        self.sync.record(id, params, &actor, at, ids_before);
+        if let Some(f) = self.after.as_mut() {
+            f(&Executed { command: id.to_string(), params: params.clone(), actor, at, ids_before, revision: self.revision });
+        }
     }
 
     pub(crate) fn undo(&mut self) -> bool {
@@ -218,5 +326,7 @@ impl Session {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_sync;
 #[cfg(test)]
 mod tests_wiki;

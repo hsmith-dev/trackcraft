@@ -20,7 +20,7 @@ use axum::http::StatusCode;
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::{IntoResponse, Response};
 pub use trackcraft_api as api;
-use trackcraft_api::{ApiError, ApiState, EventSink, Flavor, Hub, IdentityProvider, NullSink};
+use trackcraft_api::{ApiError, ApiState, EventSink, Flavor, Hub, IdentityProvider, LocalSyncHub, NullSink, SyncHub};
 
 pub use config::{Config, TokenIdentity, TokenRecord, mint_token, revoke_token};
 
@@ -82,6 +82,8 @@ pub struct Server {
     pub hub: Arc<Hub>,
     pub identity: Arc<dyn IdentityProvider>,
     pub events: Arc<dyn EventSink>,
+    /// Live-sync fan-out (M4.2, `docs/sync.md`); [`Server::with_sync_hub`] replaces it.
+    pub sync: Arc<dyn SyncHub>,
     pub options: Options,
     pub data: Option<PathBuf>,
     flushing: Arc<Mutex<()>>,
@@ -90,7 +92,13 @@ pub struct Server {
 impl Server {
     /// A server over an existing hub (tests, embedding, the suite server).
     pub fn new(hub: Arc<Hub>, identity: Arc<dyn IdentityProvider>, events: Arc<dyn EventSink>, options: Options) -> Self {
-        Server { hub, identity, events, options, data: None, flushing: Arc::new(Mutex::new(())) }
+        Server { hub, identity, events, sync: Arc::new(LocalSyncHub::new()), options, data: None, flushing: Arc::new(Mutex::new(())) }
+    }
+
+    /// Uses a shared sync hub (the suite server) instead of the built-in one.
+    pub fn with_sync_hub(mut self, sync: Arc<dyn SyncHub>) -> Self {
+        self.sync = sync;
+        self
     }
 
     /// Opens a data directory: `server.json` (tokens, default workspace, base URL) and every
@@ -120,6 +128,7 @@ impl Server {
             hub: Arc::clone(&self.hub),
             identity: Arc::clone(&self.identity),
             events: Arc::clone(&self.events),
+            sync: Arc::clone(&self.sync),
             base_url: self.options.base_url.clone(),
         }
     }
@@ -206,3 +215,5 @@ async fn log(State(enabled): State<bool>, req: Request, next: Next) -> Response 
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_sync;

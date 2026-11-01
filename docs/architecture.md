@@ -1,6 +1,6 @@
 # Architecture
 
-> **Status:** 2026-10-31 · M0. Revision history at the end.
+> **Status:** 2026-10-31 · M4.2. Revision history at the end.
 
 ## 1. Shape of the product
 
@@ -20,8 +20,11 @@ gets there in two steps that share all the code below the UI:
 2. **Team server (M4):** `trackcraft-server` hosts many workspaces for many users. Clients (desktop,
    web/WASM, agents, REST callers) send the same **commands** the local app runs; the server
    applies them to its copy, persists them, and broadcasts the results. Offline clients queue
-   commands and replay them on reconnect. Conflicts are resolved per field (issues) and by
-   version check plus three-way merge (pages, `StaleVersion`).
+   commands and replay them on reconnect. Since M4.2 ([`sync.md`](sync.md)): each workspace
+   keeps a journal of applied commands, streamed over Server-Sent Events; clients apply their
+   own commands optimistically, replay everyone's deterministically (pinned clock, workspace id
+   counter) and rebase on the server's order, so concurrent edits of a field end in server
+   order. Pages keep the version check (`StaleVersion`); three-way page merge is later work.
 
 **Servers: one per app, plus an optional combined install.** TrackCraft and Chatcraft each
 ship their own server (`trackcraft-server`, `chatcraft-server`) that installs and runs alone. For
@@ -42,7 +45,9 @@ To make that possible without coupling the apps:
   still integrate with a standalone Chatcraft over HTTP/webhooks, the same way as in the suite.
 - The shared pieces (identity, op-log sync, WebSocket fan-out, presence) should live in one
   shared crate used by both apps (proposed: `craft-collab`), so the suite server doesn't run two
-  copies of the same thing.
+  copies of the same thing. M4.2 builds them extractable: app-neutral wire types
+  (`trackcraft-sync-proto`), the `SyncHub` fan-out seam, the journal ring and the client's
+  rebase/offline loop; [`sync.md`](sync.md) lists what moves.
 
 ## 2. Crates and layers
 
@@ -51,12 +56,14 @@ To make that possible without coupling the apps:
 | L0 | `trackcraft-core` | `ProjectKey`, `IssueKey`, `Id`/`IdGen`, `Timestamp` | serde, chrono |
 | L1 | `trackcraft-markup` | rich text: ADF JSON in/out (unknown nodes preserved), Markdown and plain text out | serde_json |
 | L1 | `trackcraft-jql` | JQL lexer → parser → AST → evaluator over a `Record` trait; `ORDER BY` sort | chrono |
+| L1 | `trackcraft-sync-proto` | live-sync wire types (journal entries, snapshot, SSE parser); app-neutral | serde, chrono |
 | L2 | `trackcraft-model` | `Workspace` and validated edit primitives for tracker and wiki; `IssueRecord` (issues as JQL records) | core, markup, jql |
 | L3 | `trackcraft-store` | `.track` format: versioned JSON envelope, schema migration hook, size cap, atomic save | model |
 | L3 | `trackcraft-import` | Jira CSV / REST v3 JSON and Confluence HTML export / storage-format importers ([`import.md`](import.md)) | core, markup, model, zip |
 | L4 | `trackcraft-engine` | `Session` (workspace, acting user, undo/redo, clock), `CommandSpec` registry, catalog, sample | all of the above |
 | L5 | `trackcraft-mcp` | MCP over JSON-RPC (stdio today), two tools: `trackcraft_commands`, `trackcraft_run` | engine |
-| L5 | `trackcraft-api` | Jira/Confluence-compatible REST routes mapped onto commands; `IdentityProvider`/`EventSink` traits | engine, jql, axum |
+| L5 | `trackcraft-api` | Jira/Confluence-compatible REST routes mapped onto commands; sync snapshot + SSE events; `IdentityProvider`/`EventSink`/`SyncHub` traits | engine, jql, axum |
+| L5 | `trackcraft-sync-client` | blocking sync client for desktop remote mode (std `TcpStream`, no runtime) | engine, store, sync-proto |
 | L6 | `trackcraft-server-lib` | the mountable server: workspace hosting, token auth, limits, debounced atomic saves (no UI crates; see `server.md`) | api, store, axum, tokio |
 | L6 | `trackcraft-ui-egui` | the front end: views push actions that run as commands after drawing; same egui fork, craft-ui and test conventions as the siblings | engine, model, markup |
 | L7 | apps | `trackcraft-cli`; later `trackcraft` (desktop), `trackcraft-server`, `trackcraft-web` | |
@@ -76,8 +83,15 @@ enabled, run }` registered in `crates/engine/src/cmd/*.rs`. `Session::run(id, pa
 4. on success with a change: pushes the snapshot on the undo stack (capped at `UNDO_MAX`), clears
    redo, marks the session dirty; on error or panic: restores the snapshot.
 
-Snapshot undo is simple and correct but O(workspace) per change. The server milestone replaces
-it with an operation log (each command records its inverse), which is also what sync needs.
+While a command runs, `now()` is pinned (one command, one timestamp). After a change, `run`
+also appends a journal entry when the session has a journal (servers) and calls the optional
+`after_command` observer (sync clients forward local commands through it). A remote-mode session
+records no undo and refuses `LOCAL_ONLY` commands.
+
+Snapshot undo is simple and correct but O(workspace) per change. M4.2 added the other half of
+an operation log: the journal of applied commands (`sync.rs`), replayed deterministically by
+`Session::apply_remote`. Undo through the server is refused for now; recording each command's
+inverse in the journal (per-user server-side undo) is what replaces snapshot undo next.
 
 ## 4. Data model notes
 
@@ -104,3 +118,4 @@ it with an operation log (each command records its inverse), which is also what 
 - 2026-10-31: first version (M0).
 - 2026-10-31: servers: one per app, plus an optional suite server that installs both (owner decision).
 - 2026-10-31: M4.1: `trackcraft-api` and `trackcraft-server-lib` (L6, above the API it serves) land; `docs/server.md`.
+- 2026-10-31: M4.2: live sync — command journal, deterministic replay, SSE events, desktop remote mode; `trackcraft-sync-proto` (L1), `trackcraft-sync-client` (L5); `docs/sync.md`.

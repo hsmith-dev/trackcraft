@@ -12,6 +12,8 @@ use serde_json::Value;
 use trackcraft_engine::{Session, model::Workspace};
 
 use crate::error::{ApiError, Flavor};
+use trackcraft_engine::sync::proto::Origin;
+
 use crate::host::{CommandEvent, Credential, Hosted};
 use crate::{ApiState, BLOCKED};
 
@@ -131,28 +133,34 @@ impl Ctx {
                     Err(ApiError::new(flavor, StatusCode::FORBIDDEN, format!("user {user} is not a member of workspace {}", hosted.name()))),
                     vec![],
                     false,
+                    None,
                 );
             }
-            let (prev_user, rev) = (std::mem::replace(&mut s.user, user.clone()), s.revision());
+            let (prev_user, rev, sync_rev) = (std::mem::replace(&mut s.user, user.clone()), s.revision(), s.sync_rev());
             let mut tx = Tx { s: &mut s, flavor, events: Vec::new(), before: None };
             let out = f(&mut tx);
             let (events, before) = (std::mem::take(&mut tx.events), tx.before.take());
             let events = match (&out, before) {
                 (Err(_), Some(before)) => {
-                    s.ws = before;
+                    s.rollback_to(before, sync_rev);
                     Vec::new()
                 }
                 _ => events,
             };
             s.user = prev_user;
+            s.set_origin(None);
             let changed = s.revision() != rev;
-            (out, events, changed)
+            let synced = (s.sync_rev() != sync_rev).then(|| s.sync_rev());
+            (out, events, changed, synced)
         })
         .await;
-        let (out, events, changed) =
+        let (out, events, changed, synced) =
             joined.map_err(|_| ApiError::internal(self.flavor, "internal error while handling the request (please report this)"))?;
         if changed {
             self.state.hub.notify_changed();
+        }
+        if let Some(rev) = synced {
+            self.state.sync.publish(self.hosted.name(), rev);
         }
         for (command, params, result) in events {
             self.state.events.emit(&CommandEvent { workspace: self.hosted.name().to_string(), user: self.user.clone(), command, params, result });
@@ -185,6 +193,14 @@ impl Tx<'_> {
         if self.before.is_none() {
             self.before = Some(self.s.ws.clone());
         }
+    }
+
+    /// Runs one engine command for a sync client: its journal entry carries `origin`.
+    pub fn run_from(&mut self, id: &str, params: Value, origin: Option<Origin>) -> Result<Value, ApiError> {
+        self.s.set_origin(origin);
+        let r = self.run(id, params);
+        self.s.set_origin(None);
+        r
     }
 
     /// Runs one engine command; its error becomes an API error (404 / 409 / 400).
