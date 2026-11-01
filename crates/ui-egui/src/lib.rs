@@ -12,27 +12,19 @@ mod keys;
 pub mod markup_view;
 mod order;
 mod palette;
+mod route;
 mod shell;
 pub mod theme;
+mod widgets;
 mod wiki;
 
 use serde_json::{Value, json};
-use trackcraft_core::{Id, IssueKey, ProjectKey};
+use trackcraft_core::{Id, IssueKey};
 use trackcraft_engine::Session;
 
 pub use craft_ui::ComboBox;
+pub use route::View;
 use theme::Tokens;
-
-/// What the central area shows.
-#[derive(Debug, Clone, PartialEq)]
-pub enum View {
-    Home,
-    Issues,
-    Board(ProjectKey),
-    Issue(IssueKey),
-    Page(Id),
-    PageHistory(Id),
-}
 
 /// A request the desktop host fulfils (file dialogs live outside this crate).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -546,18 +538,7 @@ impl TrackApp {
                 r
             }
             "ui.navigate" => {
-                let v = match s("view").as_str() {
-                    "home" => View::Home,
-                    "issues" => View::Issues,
-                    "board" => View::Board(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?),
-                    "issue" => View::Issue(IssueKey::parse(&s("key")).map_err(|e| e.to_string())?),
-                    "page" | "history" => {
-                        let id = Id(p.get("id").and_then(Value::as_u64).ok_or("missing \"id\"")?);
-                        self.session.ws.page(id).map_err(|e| e.to_string())?;
-                        if s("view") == "page" { View::Page(id) } else { View::PageHistory(id) }
-                    }
-                    other => return Err(format!("unknown view {other}")),
-                };
+                let v = route::parse(&self.session.ws, &p)?;
                 self.leave_for_control(self.would_lose(&v), force)?;
                 self.navigate(v);
                 Ok(json!({"ok": true}))

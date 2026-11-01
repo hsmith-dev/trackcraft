@@ -1,0 +1,6 @@
+{"method":"ui.key","params":{"key":"?"}}
+{"shot":"/tmp/tc-shots/keys-help.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.key","params":{"key":"?"}}
+{"shot":"/tmp/tc-shots/keys-help-dark.png"}

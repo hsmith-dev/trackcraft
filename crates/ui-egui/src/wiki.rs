@@ -5,8 +5,8 @@ use serde_json::json;
 use trackcraft_core::Id;
 use trackcraft_markup::Doc;
 
-use crate::shell::card;
 use crate::theme::Tokens;
+use crate::widgets::{card, empty_state};
 use crate::{Action, NewPageForm, Then, TrackApp, View, icons, markup_view};
 
 fn breadcrumbs(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
@@ -86,7 +86,7 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.set_max_width(820.0);
         if is_home && p.body.is_empty() {
-            ui.label(RichText::new("This is the space's home page.").color(t.muted));
+            empty_state(ui, t, "This is the space's home page.");
         } else {
             markup_view::show(ui, t, &p.body);
         }

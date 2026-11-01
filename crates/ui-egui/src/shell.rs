@@ -5,6 +5,7 @@ use serde_json::json;
 use trackcraft_core::Id;
 
 use crate::theme::Tokens;
+use crate::widgets::{card, empty_state};
 use crate::{Action, ComboBox, FileRequest, Then, TrackApp, View, icons};
 
 pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
@@ -240,7 +241,7 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
         if let Some(c) = cols.get_mut(0) {
             card(c, t, "Assigned to me", |ui| {
                 if mine.is_empty() {
-                    ui.label(RichText::new("Nothing assigned to you. Nice.").color(t.muted));
+                    empty_state(ui, t, "Nothing assigned to you. Nice.");
                 }
                 for i in mine.iter().take(10) {
                     ui.horizontal(|ui| {
@@ -269,21 +270,4 @@ pub(crate) fn home(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     for a in actions {
         app.push(a);
     }
-}
-
-pub(crate) fn card<R>(ui: &mut Ui, t: &Tokens, title: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::new()
-        .fill(t.surface)
-        .stroke(egui::Stroke::new(1.0, t.border))
-        .corner_radius(10)
-        .inner_margin(14)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            if !title.is_empty() {
-                ui.label(RichText::new(title).strong().size(15.0));
-                ui.add_space(6.0);
-            }
-            body(ui)
-        })
-        .inner
 }
