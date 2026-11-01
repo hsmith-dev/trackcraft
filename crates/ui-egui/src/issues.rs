@@ -774,8 +774,9 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
             }
         });
     });
+    // Escape or a backdrop click: typed text is kept unless the person confirms (`guard.rs`).
     if modal.should_close() {
-        close = true;
+        app.push(Action::CloseCreate);
     }
     if submit {
         let mut p = json!({"project": form.project, "type": form.issue_type, "summary": form.summary, "priority": form.priority});
@@ -793,7 +794,7 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
                 app.jql_ran = None;
                 if let Some(k) = v["key"].as_str().and_then(|k| IssueKey::parse(k).ok()) {
                     app.notify(format!("Created {k}"));
-                    app.navigate(View::Issue(k));
+                    app.push(Action::Nav(View::Issue(k)));
                 }
                 return;
             }

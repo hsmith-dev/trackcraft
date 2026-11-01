@@ -284,7 +284,8 @@ pub(crate) fn new_page_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Token
                     if let Some(parent) = form.parent {
                         app.expanded.insert(parent);
                     }
-                    app.navigate(View::Page(id));
+                    // Both wait behind the unsaved-edit guard if another page has typed text.
+                    app.push(Action::Nav(View::Page(id)));
                     app.push(Action::EditPage(id));
                 }
                 return;

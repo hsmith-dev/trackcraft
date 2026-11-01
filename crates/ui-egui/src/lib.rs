@@ -5,6 +5,7 @@
 //! holds a mutable borrow of the session while it paints.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod guard;
 pub mod icons;
 mod issues;
 mod keys;
@@ -46,16 +47,25 @@ pub enum FileRequest {
 pub(crate) enum Action {
     Nav(View),
     Back,
-    Run { id: &'static str, params: Value, then: Then },
+    Run {
+        id: &'static str,
+        params: Value,
+        then: Then,
+    },
     Search(String),
     OpenCreate(Option<String>),
-    OpenNewPage { space: String, parent: Option<Id> },
+    OpenNewPage {
+        space: String,
+        parent: Option<Id>,
+    },
     EditPage(Id),
     File(FileRequest),
     TogglePalette,
     ShowHelp,
     ToggleTheme,
     Toast(String),
+    /// Close the create dialog (Escape or a backdrop click): asks first if it has typed text.
+    CloseCreate,
 }
 
 /// What to do after a successful command.
@@ -95,6 +105,13 @@ pub(crate) struct CreateForm {
     pub error: Option<String>,
 }
 
+impl CreateForm {
+    /// Typed text that closing the dialog would throw away.
+    pub(crate) fn dirty(&self) -> bool {
+        !self.summary.trim().is_empty() || !self.description.trim().is_empty()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct PageEditor {
     pub id: Id,
@@ -104,6 +121,16 @@ pub(crate) struct PageEditor {
     pub base: u32,
     /// Set when a save hit a newer version: (their version).
     pub conflict: Option<u32>,
+    /// The title and body as loaded, to tell whether anything was typed.
+    pub loaded_title: String,
+    pub loaded_body: String,
+}
+
+impl PageEditor {
+    /// The editor holds text that differs from what was loaded.
+    pub(crate) fn dirty(&self) -> bool {
+        self.title != self.loaded_title || self.body != self.loaded_body || !self.message.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -140,6 +167,9 @@ pub struct TrackApp {
     pub(crate) scroll_sel: bool,
     /// The keyboard shortcut overlay is open.
     pub(crate) help: bool,
+    /// Actions held back because they would discard typed text; the "Discard your changes?"
+    /// dialog is open while this is set (see `guard.rs`).
+    pub(crate) guard: Option<guard::Guard>,
     /// Key events queued by the control channel (`ui.key`), fed in at the next frame.
     injected: Vec<egui::Event>,
     toast: Option<(String, f64)>,
@@ -175,6 +205,7 @@ impl TrackApp {
             board_sel: None,
             scroll_sel: false,
             help: false,
+            guard: None,
             injected: vec![],
             toast: None,
             pending: vec![],
@@ -208,16 +239,24 @@ impl TrackApp {
         self.pending.push(a);
     }
 
+    /// Shows `v`, dropping any open edits (the UI asks first: see [`Action::Nav`] and `guard.rs`).
+    /// Showing the current view again changes nothing.
     pub fn navigate(&mut self, v: View) {
-        if v != self.view {
-            self.back.push(std::mem::replace(&mut self.view, v));
-            if self.back.len() > 100 {
-                self.back.remove(0);
-            }
+        if v == self.view {
+            return;
         }
+        self.back.push(std::mem::replace(&mut self.view, v));
+        if self.back.len() > 100 {
+            self.back.remove(0);
+        }
+        self.left_view();
+    }
+
+    /// Clears the per-view state after the view changed (the page editor survives only on its page).
+    fn left_view(&mut self) {
         self.issue_ui = IssueUi::default();
         self.history_preview = None;
-        if !matches!(self.view, View::Page(_)) {
+        if !self.page_edit.as_ref().is_some_and(|e| self.view == View::Page(e.id)) {
             self.page_edit = None;
         }
     }
@@ -243,14 +282,15 @@ impl TrackApp {
         let t = self.tokens(ctx);
         ctx.set_visuals(t.visuals());
         let typing = ctx.egui_wants_keyboard_input();
-        let modal = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.help;
+        let guarding = self.guard.is_some();
+        let modal = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.help || guarding;
         let injected = std::mem::take(&mut self.injected);
         ctx.input_mut(|i| {
             i.events.extend(injected);
             use egui::{Key, KeyboardShortcut, Modifiers};
             let cmd = |k| KeyboardShortcut::new(Modifiers::COMMAND, k);
             let cmd_shift = |k| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, k);
-            if i.consume_shortcut(&cmd(Key::K)) || i.consume_shortcut(&cmd_shift(Key::P)) {
+            if !guarding && (i.consume_shortcut(&cmd(Key::K)) || i.consume_shortcut(&cmd_shift(Key::P))) {
                 self.pending.push(Action::TogglePalette);
             }
             if i.consume_shortcut(&cmd_shift(Key::Z)) {
@@ -266,7 +306,7 @@ impl TrackApp {
             if i.consume_shortcut(&cmd(Key::O)) {
                 self.file_request = Some(FileRequest::Open);
             }
-            if i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft)) {
+            if !guarding && i.consume_shortcut(&KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft)) {
                 self.pending.push(Action::Back);
             }
             // Single keys: never while typing or behind a dialog (`?` also closes its own overlay).
@@ -282,9 +322,21 @@ impl TrackApp {
                 }
                 keys::view_keys(self, i);
             }
-            if i.key_pressed(Key::Escape) {
+            if guarding {
+                // Escape on "Discard your changes?" is "Keep editing"; consumed so the dialog
+                // underneath does not also see it.
+                if i.consume_key(Modifiers::NONE, Key::Escape) {
+                    self.guard = None;
+                }
+            } else if i.key_pressed(Key::Escape) {
                 if modal {
-                    self.create = None;
+                    if self.create.as_ref().is_some_and(CreateForm::dirty) {
+                        // Typed text is kept: the guard asks before the dialog closes.
+                        i.consume_key(Modifiers::NONE, Key::Escape);
+                        self.hold(Action::CloseCreate);
+                    } else {
+                        self.create = None;
+                    }
                     self.palette = None;
                     self.new_page = None;
                     self.help = false;
@@ -325,6 +377,7 @@ impl TrackApp {
         wiki::new_page_dialog(self, ui.ctx(), &t);
         palette::show(self, ui.ctx(), &t);
         keys::help(self, ui.ctx(), &t);
+        guard::dialog(self, ui.ctx(), &t);
         self.show_toast(ui.ctx(), &t);
         self.apply_pending();
     }
@@ -354,30 +407,59 @@ impl TrackApp {
 
     fn apply(&mut self, a: Action) {
         match a {
-            Action::Nav(v) => self.navigate(v),
+            Action::Nav(v) => {
+                if self.would_lose(&v) {
+                    self.hold(Action::Nav(v));
+                } else {
+                    self.navigate(v);
+                }
+            }
             Action::Back => {
-                if let Some(v) = self.back.pop() {
+                let Some(to) = self.back.last() else { return };
+                if self.would_lose(to) {
+                    self.hold(Action::Back);
+                } else if let Some(v) = self.back.pop()
+                    && v != self.view
+                {
                     self.view = v;
-                    self.issue_ui = IssueUi::default();
-                    self.page_edit = None;
+                    self.left_view();
                 }
             }
             Action::Search(q) => {
+                if self.would_lose(&View::Issues) {
+                    self.hold(Action::Search(q));
+                    return;
+                }
                 self.jql = q;
                 self.jql_ran = None;
                 self.navigate(View::Issues);
             }
+            Action::CloseCreate => {
+                if self.create.as_ref().is_some_and(CreateForm::dirty) {
+                    self.hold(Action::CloseCreate);
+                } else {
+                    self.create = None;
+                }
+            }
             Action::OpenCreate(project) => self.create = Some(issues::new_form(self, project)),
             Action::OpenNewPage { space, parent } => self.new_page = Some(NewPageForm { space, parent, ..NewPageForm::default() }),
             Action::EditPage(id) => {
+                // Reloading the same page is the conflict banner's explicit "Discard mine".
+                if self.page_edit.as_ref().is_some_and(|e| e.id != id && e.dirty()) {
+                    self.hold(Action::EditPage(id));
+                    return;
+                }
                 if let Ok(p) = self.session.ws.page(id) {
+                    let body = p.body.to_markdown();
                     self.page_edit = Some(PageEditor {
                         id,
                         title: p.title.clone(),
-                        body: p.body.to_markdown(),
+                        body: body.clone(),
                         message: String::new(),
                         base: p.version,
                         conflict: None,
+                        loaded_title: p.title.clone(),
+                        loaded_body: body,
                     });
                 }
             }
@@ -402,14 +484,14 @@ impl TrackApp {
                     Then::OpenIssue => {
                         if let Some(k) = v["key"].as_str().and_then(|k| IssueKey::parse(k).ok()) {
                             self.notify(format!("Created {k}"));
-                            self.navigate(View::Issue(k));
+                            self.apply(Action::Nav(View::Issue(k)));
                         }
                     }
                     Then::EndPageEdit => {
                         self.page_edit = None;
                         self.notify("Page saved");
                     }
-                    Then::Nav(view) => self.navigate(view),
+                    Then::Nav(view) => self.apply(Action::Nav(view)),
                 }
             }
             Err(e) => {
@@ -443,14 +525,18 @@ impl TrackApp {
     /// The control channel / `ui_shot` entry point: `{"method": …, "params": …}`.
     ///
     /// - `engine.execute` `{"command": id, "params": {…}}`
-    /// - `ui.navigate` `{"view": "home"|"issues"|"board"|"issue"|"page"|"history", "project"|"key"|"id": …}`
-    /// - `ui.search` `{"jql": …}` · `ui.create` `{"project": …}` · `ui.palette` · `ui.editPage` `{"id": n}`
+    /// - `ui.navigate` `{"view": "home"|"issues"|"board"|"issue"|"page"|"history", "project"|"key"|"id": …, "force": bool}`
+    /// - `ui.search` `{"jql": …, "force": bool}` · `ui.create` `{"project": …}` · `ui.palette` · `ui.editPage` `{"id": n, "force": bool}`
+    ///
+    /// Requests that would leave typed, unsaved text (page editor, issue summary/description)
+    /// fail with "unsaved changes" instead of opening a dialog; `"force": true` discards the text.
     /// - `ui.theme` `{"dark": bool}`
     /// - `ui.key` `{"key": "j"|"ArrowDown"|"Enter"|"?"…, "shift"|"alt"|"command": bool}`: a key press at the next frame
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
         let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+        let force = p.get("force").and_then(Value::as_bool).unwrap_or(false);
         match method {
             "engine.execute" => {
                 let id = p.get("command").and_then(Value::as_str).ok_or("missing \"command\"")?;
@@ -472,10 +558,12 @@ impl TrackApp {
                     }
                     other => return Err(format!("unknown view {other}")),
                 };
+                self.leave_for_control(self.would_lose(&v), force)?;
                 self.navigate(v);
                 Ok(json!({"ok": true}))
             }
             "ui.search" => {
+                self.leave_for_control(self.would_lose(&View::Issues), force)?;
                 self.apply(Action::Search(s("jql")));
                 Ok(json!({"ok": true}))
             }
@@ -489,6 +577,8 @@ impl TrackApp {
             }
             "ui.editPage" => {
                 let id = Id(p.get("id").and_then(Value::as_u64).ok_or("missing \"id\"")?);
+                let loses = self.would_lose(&View::Page(id)) || self.page_edit.as_ref().is_some_and(PageEditor::dirty);
+                self.leave_for_control(loses, force)?;
                 self.navigate(View::Page(id));
                 self.apply(Action::EditPage(id));
                 Ok(json!({"ok": true}))
