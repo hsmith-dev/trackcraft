@@ -58,7 +58,7 @@ Before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, l
 ## Running it
 - `cargo run --release -p trackcraft` — the desktop app on the sample workspace (`trackcraft file.track` opens a file).
 - **Headless screenshots** (no window, no focus stealing): `cargo run -p trackcraft-ui-egui --example ui_shot -- script.jsonl`, where each line is a `TrackApp::control` request (`{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}`, `{"method":"engine.execute","params":{"command":…}}`) or `{"shot":"/abs/out.png"}`. **For UI work, look at the result.**
-- UI tests (`crates/ui-egui/src/tests.rs`) run under egui_kittest, which panics on missing glyphs and on widgets without an accessible name: label every control (`labelled_by`), and write shortcuts as text (`crate::key("Mod+K")`), not ⌘/⇧ symbols the bundled font lacks. Use `craft_ui::ComboBox`, never egui's (clippy enforces it).
+- UI tests (`crates/ui-egui/src/tests/<area>.rs`; module map and parallel-work rules in `crates/ui-egui/README.md`; shot scripts in `crates/ui-egui/shots/`) run under egui_kittest, which panics on missing glyphs and on widgets without an accessible name: label every control (`labelled_by`), and write shortcuts as text (`crate::key("Mod+K")`), not ⌘/⇧ symbols the bundled font lacks. Use `craft_ui::ComboBox`, never egui's (clippy enforces it).
 - `cargo run -p trackcraft-cli -- commands` — every command with its params.
 - `cargo run -p trackcraft-cli -- jql --sample 'project = LUME AND statusCategory != Done ORDER BY priority'`
 - `cargo run -p trackcraft-cli -- run --sample --cmd 'issue.create={"project":"LUME","summary":"Try it"}' --cmd 'board.view={"project":"LUME"}' --out /tmp/w.track`
