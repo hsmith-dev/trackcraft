@@ -1,6 +1,6 @@
 # TrackCraft roadmap
 
-**Stage: pre-alpha** · M1 desktop UI landed; next: M1 polish, then M2 tracker depth
+**Stage: pre-alpha** · desktop app, backlog/sprints, wiki depth, first server and importers landed; next: M4 multi-user (sync, permissions, web client)
 
 > **Last updated:** 2026-10-31 · **Change:** M1 UI, control channel, keyboard navigation, issue history.
 
@@ -14,9 +14,9 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| Feature catalog coverage | **66 / 116 (56.9%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
-| Ready for real work | **~22%**: single-user desktop app with backlog and sprints; no server or import | estimated |
-| Commands | 62 | measured (`trackcraft-cli commands`) |
+| Feature catalog coverage | **68 / 116 (58.6%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ready for real work | **~35%**: a team can import from Jira/Confluence, plan sprints and keep a wiki in the desktop app, and script it over a Jira-compatible REST API; no live multi-user editing, permissions or web client yet | estimated |
+| Commands | 63 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
 the percentage will *fall* as rows are added. Read it as "of what we have catalogued", not as
@@ -30,11 +30,20 @@ parity.
 | M1 | Desktop app (egui): sidebar, issue list + JQL bar, issue view/edit, board, page tree, page view/edit | landed; polish open |
 | M2 | Tracker depth: backlog, sprints, rank, versions, components, custom fields, workflow editor, activity history, saved filters | |
 | M3 | Wiki depth: rich editor (tables, panels, tasks, macros), comments, version diff, templates, attachments, export | |
-| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | |
-| M5 | Compatibility: Jira REST v3 and Confluence REST v2 subsets, Jira/Confluence importers | |
+| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | started: REST API + token auth + mountable server library (M4.1) |
+| M5 | Compatibility: Jira REST v3 and Confluence REST v2 subsets, Jira/Confluence importers | REST subsets and importers landed; depth open |
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-10-31 · UI-7, UI-9/13, UI-27..30, M4.1, M5.1** (five agents in parallel) — Settings
+  (theme, density, workspace, people, autosave after the last change); issue view polish
+  (activity tabs, link/unlink, comment edit, pickers, label chips, create dialog); wiki screens
+  (page and block comments, version compare, templates, page-tree drag and copy);
+  `trackcraft-server` with token auth and Jira/Confluence-compatible REST subsets, built as a
+  mountable library; importers for Jira CSV/JSON and Confluence exports
+  (`trackcraft-cli import`, `workspace.import`). Verified end to end: CSV import → server →
+  curl search/create/transition/changelog.
 
 - **2026-10-31 · M2.3, M3.1, UI-5, UI-6, UI-8** (five agents in parallel) — Tracker commands
   (workspace rename, user edit, unlink, comment edit, issue type/parent changes, sprint fixes,
