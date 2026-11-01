@@ -15,7 +15,7 @@ assessment is [`docs/target-app-parity.md`](docs/target-app-parity.md), the work
 | Number | Value | Kind |
 | --- | --- | --- |
 | Feature catalog coverage | **68 / 116 (58.6%)** of the rows listed so far | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
-| Ready for real work | **~35%**: a team can import from Jira/Confluence, plan sprints and keep a wiki in the desktop app, and script it over a Jira-compatible REST API; no live multi-user editing, permissions or web client yet | estimated |
+| Ready for real work | **~42%**: teams can import, plan sprints and keep a wiki, edit the same workspace live from several desktop apps through `trackcraft-server`, and script it over Jira-compatible REST; no permissions, browser editing of server workspaces, HTTPS in the client or notifications yet | estimated |
 | Commands | 63 | measured (`trackcraft-cli commands`) |
 
 The catalog is young: it lists the headline features of both products, not their full depth, so
@@ -30,11 +30,19 @@ parity.
 | M1 | Desktop app (egui): sidebar, issue list + JQL bar, issue view/edit, board, page tree, page view/edit | landed; polish open |
 | M2 | Tracker depth: backlog, sprints, rank, versions, components, custom fields, workflow editor, activity history, saved filters | |
 | M3 | Wiki depth: rich editor (tables, panels, tasks, macros), comments, version diff, templates, attachments, export | |
-| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | started: REST API + token auth + mountable server library (M4.1) |
+| M4 | Team server: accounts, permissions, real-time sync, notifications, web client (WASM) | REST + tokens (M4.1), live sync (M4.2), web client in local mode (M4.4) landed; permissions, notifications, browser sync open |
 | M5 | Compatibility: Jira REST v3 and Confluence REST v2 subsets, Jira/Confluence importers | REST subsets and importers landed; depth open |
 | M6 | Releases through craft-common-actions (macOS, Windows, Linux, web) | |
 
 ## Progress log
+
+- **2026-11-01 · M4.2, M4.4, fonts, UI fixes** (four agents in parallel) — Live sync: a server
+  journal streamed over SSE, deterministic replay in the engine, desktop remote mode
+  (`trackcraft --server … --workspace … --token …`) with optimistic edits, an offline queue and
+  snapshot resync (`docs/sync.md`, protocol types ready to share with Chatcraft); the web client
+  (`apps/trackcraft-web`, trunk, served by `trackcraft-server --web`); real glyphs for CJK,
+  Arabic, Devanagari and emoji via system fonts and craft-fonts; File › Import, rich compare
+  view, peek pane, cross-space page moves.
 
 - **2026-10-31 · UI-fixes** — peek pane on the issue list, board and backlog (`Space`, hover
   "Peek", follows the selection, `ui.peek`); File › Import… for Jira CSV / JSON and Confluence
