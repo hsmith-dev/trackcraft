@@ -62,7 +62,8 @@ fn entries(app: &TrackApp, q: &str) -> Vec<Entry> {
             out.push(Entry::Go(View::Board(p.key.clone()), label));
         }
     }
-    for (label, v) in [("All projects", View::Projects), ("All spaces", View::Spaces)] {
+    for (label, v) in [("All projects", View::Projects), ("All spaces", View::Spaces), ("Settings", View::Settings(crate::settings::Tab::Appearance))]
+    {
         if hit(label) {
             out.push(Entry::Go(v, label.into()));
         }

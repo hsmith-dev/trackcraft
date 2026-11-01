@@ -32,8 +32,8 @@ usage: trackcraft [--sample] [--control PORT] [file.track]
   --recent          list recently opened workspaces and exit
 ";
 
-/// A dirty workspace with a path is saved this long after it first became dirty.
-const AUTOSAVE: Duration = Duration::from_secs(30);
+/// How long to wait before retrying a failed autosave.
+const AUTOSAVE_RETRY: Duration = Duration::from_secs(30);
 
 /// At most this many control requests are handled per frame (the rest wait a frame).
 const REQUESTS_PER_FRAME: usize = 64;
@@ -133,8 +133,9 @@ struct App {
     title: String,
     control: Option<Receiver<ControlRequest>>,
     key_file: Option<KeyFile>,
-    /// When the workspace was first seen dirty since the last save (the autosave timer).
-    dirty_since: Option<Instant>,
+    /// The autosave timer: the revision last seen while dirty, and when it was first seen.
+    /// Autosave waits the Settings interval after the last change (UI-7).
+    dirty_since: Option<(u64, Instant)>,
     /// The workspace path last recorded in the recent list.
     seen_path: Option<PathBuf>,
 }
@@ -230,25 +231,43 @@ impl App {
         }
     }
 
-    /// Saves a dirty workspace that has a path [`AUTOSAVE`] after it became dirty.
+    /// Saves a dirty workspace that has a path once no change has happened for the autosave
+    /// interval set in Settings (`TrackApp::autosave_secs`; `None` turns autosave off). A
+    /// workspace without a path is never autosaved.
     fn autosave(&mut self, ctx: &egui::Context) {
+        let Some(secs) = self.app.autosave_secs() else {
+            self.dirty_since = None;
+            return;
+        };
         if !self.app.session.dirty || self.app.session.path.is_none() {
             self.dirty_since = None;
             return;
         }
-        let since = *self.dirty_since.get_or_insert_with(Instant::now);
+        let wait = Duration::from_secs(secs);
+        let rev = self.app.session.revision();
+        let since = match self.dirty_since {
+            Some((seen, at)) if seen == rev => at,
+            // A new change restarts the wait.
+            _ => {
+                let now = Instant::now();
+                self.dirty_since = Some((rev, now));
+                now
+            }
+        };
         let elapsed = since.elapsed();
-        if elapsed < AUTOSAVE {
-            ctx.request_repaint_after(AUTOSAVE.saturating_sub(elapsed));
+        if elapsed < wait {
+            ctx.request_repaint_after(wait.saturating_sub(elapsed));
             return;
         }
         match self.app.session.run("file.save", &json!({})) {
             Ok(_) => self.dirty_since = None,
             Err(e) => {
                 self.app.notify(format!("Autosave failed: {e}"));
-                // Try again in another interval.
-                self.dirty_since = Some(Instant::now());
-                ctx.request_repaint_after(AUTOSAVE);
+                // Try again after a while (the wait restarts from now).
+                let retry = AUTOSAVE_RETRY.max(wait);
+                let now = Instant::now();
+                self.dirty_since = Some((rev, now.checked_add(retry.saturating_sub(wait)).unwrap_or(now)));
+                ctx.request_repaint_after(retry);
             }
         }
     }

@@ -10,7 +10,7 @@ use trackcraft_core::ProjectKey;
 use crate::directory::{self, Star};
 use crate::theme::Tokens;
 use crate::widgets::{card, empty_state, link_truncated};
-use crate::{Action, ComboBox, FileRequest, Then, TrackApp, View, icons, keys};
+use crate::{Action, FileRequest, Then, TrackApp, View, icons, keys};
 
 pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     egui::Panel::top("top")
@@ -68,31 +68,8 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let me = app.session.user.clone();
                     let display = app.session.ws.users.get(&me).map(|u| u.display_name.clone()).unwrap_or_else(|| me.clone());
-                    // Right-to-left: the combo is drawn before its label, and linked to it after.
-                    let acting = ComboBox::from_id_salt("acting-user")
-                        .selected_text(display.clone())
-                        .width(130.0)
-                        .show_ui(ui, |ui| {
-                            let users: Vec<(String, String)> =
-                                app.session.ws.users.values().map(|u| (u.id.clone(), u.display_name.clone())).collect();
-                            for (id, name) in users {
-                                if ui.selectable_label(id == me, &name).clicked() {
-                                    app.push(Action::Run {
-                                        id: "user.switch",
-                                        params: json!({"id": id}),
-                                        then: Then::Toast(format!("Acting as {name}")),
-                                    });
-                                }
-                            }
-                        })
-                        .response;
-                    icons::avatar(ui, t, &me, &display, 26.0);
-                    let label = ui.label(RichText::new("Acting as").color(t.muted).size(12.0));
-                    let _ = acting.labelled_by(label.id);
-                    let theme = if t.dark { "Light" } else { "Dark" };
-                    if ui.small_button(theme).on_hover_text("Switch the interface theme").clicked() {
-                        app.push(Action::ToggleTheme);
-                    }
+                    // UI-7: the avatar menu (who you act as, theme, Settings).
+                    user_menu(app, ui, t, &me, &display);
                     let redo = ui
                         .add_enabled(app.session.can_redo(), egui::Button::new("Redo").small())
                         .on_hover_text(format!("Redo ({})", crate::key("Mod+Shift+Z")));
@@ -111,6 +88,44 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                 });
             });
         });
+}
+
+// UI-7
+/// The avatar menu at the right of the top bar: who you are acting as (and switching), the
+/// theme, and Settings. Drawn right-to-left: the name button, then the avatar to its left.
+fn user_menu(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, me: &str, display: &str) {
+    let button = egui::Button::new(RichText::new(display).strong()).frame(false);
+    let (_, _) = egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
+        ui.set_min_width(200.0);
+        ui.label(RichText::new("Acting as").color(t.muted).size(12.0));
+        let users: Vec<(String, String)> = app.session.ws.users.values().map(|u| (u.id.clone(), u.display_name.clone())).collect();
+        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+            for (id, name) in users {
+                if ui.selectable_label(id == me, &name).clicked() && id != me {
+                    app.push(Action::Run { id: "user.switch", params: json!({"id": id}), then: Then::Toast(format!("Acting as {name}")) });
+                    ui.close();
+                }
+            }
+        });
+        ui.separator();
+        ui.label(RichText::new("Theme").color(t.muted).size(12.0));
+        let current = crate::theme::ThemeChoice::from_dark(app.dark);
+        ui.horizontal(|ui| {
+            for c in crate::theme::ThemeChoice::ALL {
+                if ui.add(egui::Button::selectable(c == current, c.label())).clicked() {
+                    app.dark = c.dark();
+                }
+            }
+        });
+        ui.separator();
+        let settings = egui::Button::new("Settings").shortcut_text(crate::key("Mod+,"));
+        if ui.add(settings).clicked() {
+            app.push(Action::Nav(View::Settings(crate::settings::Tab::Appearance)));
+            ui.close();
+        }
+    });
+    icons::avatar(ui, t, me, display, 26.0);
+    ui.label(RichText::new("Acting as").color(t.muted).size(12.0));
 }
 
 /// The project the current view belongs to (board, backlog, issue).

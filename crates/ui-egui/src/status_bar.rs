@@ -53,6 +53,7 @@ pub(crate) fn context(app: &TrackApp) -> String {
         // The directory itself shows the count; the bar names the place.
         View::Projects => "Project directory".into(),
         View::Spaces => "Space directory".into(),
+        View::Settings(tab) => format!("Settings: {}", tab.label()), // UI-7
     };
     middle_truncate(&s, 80)
 }
