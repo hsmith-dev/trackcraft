@@ -6,6 +6,7 @@ mod board;
 mod guard;
 mod hostile; // UI-6
 mod issue;
+mod issue_polish; // UI-9
 mod keys;
 mod list;
 mod nav;

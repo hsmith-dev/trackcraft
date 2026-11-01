@@ -97,6 +97,8 @@ pub(crate) struct IssueUi {
     pub open_assignee: bool,
     /// Open the status (transition) menu next frame (`t`).
     pub open_status: bool,
+    /// Link form, comment edit and the reverse-link cache (UI-9).
+    pub polish: issues::Polish, // UI-9
 }
 
 #[derive(Debug, Default)]
@@ -109,6 +111,11 @@ pub(crate) struct CreateForm {
     pub assignee: Option<String>,
     pub parent: String,
     pub error: Option<String>,
+    // UI-9: labels, the open sprint to create in, and "Create another".
+    pub labels: Vec<String>,
+    pub label_draft: String,
+    pub sprint: Option<Id>,
+    pub create_another: bool,
 }
 
 impl CreateForm {
@@ -201,6 +208,8 @@ pub struct TrackApp {
     forward: Vec<View>,
     pub(crate) recent: Vec<View>,
     pub(crate) side: directory::SideUi,
+    /// The issue view's activity tab, kept across issues (UI-13).
+    pub(crate) activity_tab: issues::ActivityTab, // UI-9
 }
 
 impl TrackApp {
@@ -248,6 +257,8 @@ impl TrackApp {
             forward: vec![],                        // UI-8
             recent: vec![],                         // UI-8
             side: directory::SideUi::default(),     // UI-8
+            // UI-9
+            activity_tab: issues::ActivityTab::default(),
         }
     }
 
@@ -727,6 +738,11 @@ impl TrackApp {
                     let on = p.get("on").and_then(Value::as_bool).unwrap_or(true);
                     self.side.set_star(directory::Star::parse(star).ok_or("\"star\" is kind:id (project, space, page or filter)")?, on);
                 }
+                Ok(json!({"ok": true}))
+            }
+            // UI-9: the issue view's activity tab (comments, history or all).
+            "ui.issueTab" => {
+                self.activity_tab = issues::ActivityTab::parse(&s("tab")).ok_or("\"tab\" is comments, history or all")?;
                 Ok(json!({"ok": true}))
             }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),

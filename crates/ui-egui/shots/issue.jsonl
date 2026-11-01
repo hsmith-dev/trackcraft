@@ -1,3 +1,4 @@
+{"method":"ui.theme","params":{"dark":false}}
 {"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
 {"shot":"/tmp/tc-shots/issue.png"}
 {"method":"ui.navigate","params":{"view":"issue","key":"LUME-4"}}
@@ -8,6 +9,26 @@
 {"method":"ui.create","params":{"project":"LUME"}}
 {"shot":"/tmp/tc-shots/issue-create.png"}
 {"method":"ui.key","params":{"key":"Escape"}}
+{"method":"engine.execute","params":{"command":"issue.editComment","params":{"key":"LUME-4","id":18,"body":"Reproduced on the latest build. Contrast ratio is about 2:1 (edited to add: also on tablets)."}}}
+{"method":"engine.execute","params":{"command":"issue.link","params":{"key":"LUME-4","type":"relates to","target":"LUME-3"}}}
+{"method":"engine.execute","params":{"command":"issue.edit","params":{"key":"LUME-2","parent":"LUME-1","labels":["offline","cache","perf"]}}}
+{"method":"engine.execute","params":{"command":"issue.assign","params":{"key":"LUME-2","assignee":"jo"}}}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-4"}}
+{"shot":"/tmp/tc-shots/issue-comments-edited.png"}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"method":"ui.issueTab","params":{"tab":"history"}}
+{"shot":"/tmp/tc-shots/history.png"}
+{"method":"ui.issueTab","params":{"tab":"all"}}
+{"shot":"/tmp/tc-shots/issue-all.png"}
+{"method":"ui.issueTab","params":{"tab":"comments"}}
 {"method":"ui.theme","params":{"dark":true}}
 {"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
 {"shot":"/tmp/tc-shots/issue-dark.png"}
+{"method":"ui.issueTab","params":{"tab":"history"}}
+{"shot":"/tmp/tc-shots/history-dark.png"}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-4"}}
+{"method":"ui.issueTab","params":{"tab":"all"}}
+{"shot":"/tmp/tc-shots/issue-all-dark.png"}
+{"method":"ui.create","params":{"project":"LUME"}}
+{"shot":"/tmp/tc-shots/issue-create-dark.png"}
+{"method":"ui.key","params":{"key":"Escape"}}
