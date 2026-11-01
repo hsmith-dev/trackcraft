@@ -508,14 +508,11 @@ impl TrackApp {
 
     pub(crate) fn run(&mut self, id: &str, params: &Value, then: Then) {
         // UI-5: a copy to tell whether the command changed anything (so its toast offers Undo).
-        let before = trackcraft_engine::command(id).filter(|c| c.mutates).map(|_| self.session.ws.clone());
+        let before = self.session.revision();
         match self.session.run(id, params) {
             Ok(v) => {
                 // UI-5
-                let changed = before.is_some_and(|b| b != self.session.ws);
-                if toast::moves_history(id) {
-                    self.toasts.changes = self.toasts.changes.wrapping_add(1);
-                }
+                let changed = self.session.revision() != before && trackcraft_engine::command(id).is_some_and(|c| c.mutates);
                 self.jql_ran = None;
                 // Undo can remove what the current view shows.
                 self.fix_view();
@@ -590,10 +587,6 @@ impl TrackApp {
             "engine.execute" => {
                 let id = p.get("command").and_then(Value::as_str).ok_or("missing \"command\"")?;
                 let r = self.session.run(id, p.get("params").unwrap_or(&json!({})));
-                // UI-5
-                if r.is_ok() && toast::moves_history(id) {
-                    self.toasts.changes = self.toasts.changes.wrapping_add(1);
-                }
                 self.jql_ran = None;
                 self.fix_view();
                 r

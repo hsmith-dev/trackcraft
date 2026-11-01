@@ -7,7 +7,6 @@
 
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
 use serde_json::json;
-use trackcraft_core::IdGen;
 use trackcraft_engine::Session;
 
 use crate::theme::Tokens;
@@ -46,13 +45,11 @@ impl Kind {
     }
 }
 
-/// Where the history stood right after a change: the UI's count of history-changing commands
-/// plus the workspace id counter (which also moves when a view calls `Session::run` directly).
-/// Undo is offered only while both still match.
+/// Where the history stood right after a change: the session's revision, which moves on every
+/// change, undo and redo however it was made. Undo is offered only while it still matches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Stamp {
-    changes: u64,
-    ids: IdGen,
+    revision: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -72,14 +69,6 @@ pub(crate) struct Toast {
 pub(crate) struct Toasts {
     pub items: Vec<Toast>,
     next_id: u64,
-    /// History-changing commands run through the UI (bumped by `TrackApp::run` and the
-    /// control channel).
-    pub changes: u64,
-}
-
-/// Commands that move the undo history (a later Undo would no longer revert an earlier toast's change).
-pub(crate) fn moves_history(id: &str) -> bool {
-    trackcraft_engine::command(id).is_some_and(|c| c.mutates) || matches!(id, "edit.undo" | "edit.redo" | "file.open" | "workspace.new")
 }
 
 impl Toasts {
@@ -97,7 +86,7 @@ impl Toasts {
 
     /// The history as it stands now.
     pub(crate) fn stamp(&self, s: &Session) -> Stamp {
-        Stamp { changes: self.changes, ids: s.ws.ids.clone() }
+        Stamp { revision: s.revision() }
     }
 
     /// The toast's Undo would revert its own change (nothing ran since).
