@@ -48,6 +48,7 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
     let Some(mut form) = app.create.take() else { return };
     let mut close = false;
     let mut submit = false;
+    let can_create = crate::widgets::can(app, "issue.create", &json!({"project": form.project})); // UI-37
     let ws = &app.session.ws;
     let me = app.session.user.clone();
     let suggestions = super::detail::workspace_labels(&mut None, 0, ws);
@@ -188,7 +189,8 @@ pub(crate) fn create_dialog(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens)
             submit = true;
         }
         ui.horizontal(|ui| {
-            let create = ui.add(egui::Button::new(RichText::new("Create").color(t.on_accent).strong()).fill(t.accent));
+            let create = ui.add_enabled(can_create, egui::Button::new(RichText::new("Create").color(t.on_accent).strong()).fill(t.accent)); // UI-37
+            let create = create.on_disabled_hover_text(crate::widgets::denied("create issues in this project"));
             if create.on_hover_text(format!("Create ({})", crate::key("Mod+Enter"))).clicked() {
                 submit = true;
             }

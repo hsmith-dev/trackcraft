@@ -23,6 +23,8 @@ mod user_picker; // UI-9
 pub(crate) use issue_picker::{Candidate, issue_picker, short}; // UI-9
 pub(crate) use label_editor::{label_editor, remove_button}; // UI-9
 pub(crate) use number_field::number_field; // UI-9
-pub(crate) use user_picker::{Picked, user_picker}; // UI-9
+pub(crate) use user_picker::{Picked, person_adder, user_picker}; // UI-9, UI-37
 mod snippet; // UI-fixes
 pub(crate) use snippet::{quote_excerpt, snippet, word_prefix}; // UI-fixes
+mod can; // UI-37
+pub(crate) use can::{CanCache, can, denied, enforced}; // UI-37

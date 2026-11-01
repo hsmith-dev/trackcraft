@@ -170,3 +170,34 @@ pub fn app_mark(ui: &mut Ui, t: &Tokens, size: f32) -> Response {
     }
     resp
 }
+
+// UI-37
+/// A padlock in `r`: a rounded body with a shackle arc above it (restricted pages).
+pub fn paint_lock(p: &Painter, color: Color32, r: Rect) {
+    let w = r.width();
+    let body = Rect::from_min_max(pos2(r.left() + w * 0.18, r.top() + r.height() * 0.45), pos2(r.right() - w * 0.18, r.bottom() - r.height() * 0.05));
+    let c = pos2(r.center().x, body.top());
+    let rad = body.width() * 0.3;
+    let arc: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let a = std::f32::consts::PI * (i as f32 / 12.0);
+            pos2(c.x - rad * a.cos(), c.y - rad * 1.25 * a.sin())
+        })
+        .collect();
+    p.add(Shape::line(arc, Stroke::new((w * 0.12).max(1.2), color)));
+    p.rect_filled(body, w * 0.12, color);
+}
+
+// UI-37
+/// A gear in `r`: a ring with eight teeth (settings).
+pub fn paint_gear(p: &Painter, color: Color32, r: Rect) {
+    let c = r.center();
+    let s = r.width() / 2.0;
+    let stroke = Stroke::new((s * 0.28).max(1.2), color);
+    for i in 0..8 {
+        let a = std::f32::consts::TAU * (i as f32 / 8.0);
+        let d = vec2(a.cos(), a.sin());
+        p.line_segment([c + d * s * 0.55, c + d * s * 0.95], stroke);
+    }
+    p.circle_stroke(c, s * 0.5, stroke);
+}

@@ -20,6 +20,7 @@ pub mod markup_view;
 mod order;
 mod palette;
 mod peek;
+mod project_settings;
 mod route;
 mod settings; // UI-7
 mod shell;
@@ -28,7 +29,7 @@ mod status_bar; // UI-5
 pub mod theme;
 mod toast; // UI-5
 mod widgets;
-mod wiki; // fixes
+mod wiki; // fixes // UI-37
 
 use serde_json::{Value, json};
 use trackcraft_core::{Id, IssueKey};
@@ -240,6 +241,10 @@ pub struct TrackApp {
     pub(crate) import: import_dialog::ImportUi, // fixes
     /// The server connection indicator and remote mode (M4.7).
     pub(crate) conn: status_bar::Connection, // M4.7
+    /// Project and space settings forms (UI-37).
+    pub(crate) access: project_settings::AccessUi, // UI-37
+    /// Cached permission answers for enabling controls (UI-37).
+    pub(crate) can: widgets::CanCache, // UI-37
 }
 
 impl TrackApp {
@@ -291,10 +296,12 @@ impl TrackApp {
             settings: settings::SettingsUi::default(),
             // UI-9
             activity_tab: issues::ActivityTab::default(),
-            wiki: wiki::WikiUi::default(),              // UI-27..30
-            peek: None,                                 // fixes
-            import: import_dialog::ImportUi::default(), // fixes
-            conn: status_bar::Connection::default(),    // M4.7
+            wiki: wiki::WikiUi::default(),                 // UI-27..30
+            peek: None,                                    // fixes
+            import: import_dialog::ImportUi::default(),    // fixes
+            conn: status_bar::Connection::default(),       // M4.7
+            access: project_settings::AccessUi::default(), // UI-37
+            can: widgets::CanCache::default(),             // UI-37
         }
     }
 
@@ -514,6 +521,8 @@ impl TrackApp {
                 View::Settings(tab) => settings::show(self, ui, &t, tab),               // UI-7
                 View::PageDiff(id, from, to) => wiki::diff::view(self, ui, &t, id, from, to), // UI-27..30
                 View::Inbox => inbox::view(self, ui, &t),                               // M4.5
+                View::ProjectSettings(k, tab) => project_settings::project(self, ui, &t, &k, tab), // UI-37
+                View::SpaceSettings(k) => project_settings::space(self, ui, &t, &k),    // UI-37
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -673,6 +682,8 @@ impl TrackApp {
             View::Backlog(p) => !self.session.ws.projects.contains_key(p), // UI-11
             View::SprintBoard(_, id) => !self.session.ws.sprints.contains_key(id), // UI-12
             View::PageDiff(id, ..) => !self.session.ws.pages.contains_key(id), // UI-27..30
+            View::ProjectSettings(k, _) => !self.session.ws.projects.contains_key(k), // UI-37
+            View::SpaceSettings(k) => !self.session.ws.spaces.contains_key(k), // UI-37
             _ => false,
         };
         if gone {

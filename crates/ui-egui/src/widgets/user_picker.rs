@@ -29,10 +29,31 @@ pub(crate) fn user_picker(
     label: egui::Id,
     width: f32,
 ) -> Picked<Option<String>> {
+    picker(ui, ws, me, id_salt, current, label, width, None)
+}
+
+// UI-37
+/// A picker for adding someone to a list: the closed box reads `placeholder`, and the menu has
+/// no "Unassigned" or "Assign to me". The choice is `Some(user id)`.
+pub(crate) fn person_adder(ui: &mut Ui, ws: &Workspace, id_salt: &str, placeholder: &str, label: egui::Id, width: f32) -> Picked<Option<String>> {
+    picker(ui, ws, "", id_salt, None, label, width, Some(placeholder))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn picker(
+    ui: &mut Ui,
+    ws: &Workspace,
+    me: &str,
+    id_salt: &str,
+    current: Option<&str>,
+    label: egui::Id,
+    width: f32,
+    placeholder: Option<&str>,
+) -> Picked<Option<String>> {
     let search_id = ui.make_persistent_id((id_salt, "search"));
     let mut choice: Option<Option<String>> = None;
     let inner = ComboBox::from_id_salt(id_salt)
-        .selected_text(name_of(ws, current))
+        .selected_text(placeholder.map_or_else(|| name_of(ws, current), str::to_string))
         .width(width)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show_ui_with_header(
@@ -58,7 +79,7 @@ pub(crate) fn user_picker(
                     .take(SHOWN)
                     .map(|u| (u.id.as_str(), u.display_name.as_str()))
                     .collect();
-                if q.is_empty() {
+                if q.is_empty() && placeholder.is_none() {
                     if ui.selectable_label(current.is_none(), "Unassigned").clicked() {
                         choice = Some(None);
                     }

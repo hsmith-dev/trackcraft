@@ -30,6 +30,10 @@ pub enum View {
     PageDiff(Id, u32, u32),
     /// The acting user's notifications (M4.5).
     Inbox,
+    /// A project's settings, on one of its tabs (UI-37).
+    ProjectSettings(ProjectKey, crate::project_settings::ProjectTab),
+    /// A space's settings (UI-37).
+    SpaceSettings(ProjectKey),
 }
 
 /// The view a `ui.navigate` request names:
@@ -68,6 +72,13 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
             View::PageDiff(id, from, to)
         }
         "inbox" => View::Inbox, // M4.5
+        // UI-37: `{"view": "projectSettings", "project": "LUME", "tab": "access"}`,
+        // `{"view": "spaceSettings", "space": "ENG"}`.
+        "projectSettings" => {
+            let k = ws.project(&s("project")).map_err(|e| e.to_string())?.key.clone();
+            View::ProjectSettings(k, crate::project_settings::ProjectTab::parse(&s("tab")).ok_or("unknown project settings \"tab\"")?)
+        }
+        "spaceSettings" => View::SpaceSettings(ws.space(&s("space")).map_err(|e| e.to_string())?.key.clone()),
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.

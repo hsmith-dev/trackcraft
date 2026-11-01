@@ -23,6 +23,7 @@ TrackCraft's egui front end (layer L6). Views read `Session` state and change it
 | `src/fonts.rs` | UI font stack (craft-ui `UiFonts`): egui faces, embedded craft-fonts faces, system fonts; `install` at startup (desktop and web) |
 | `src/fixtures.rs` | Hostile-data fixtures (`stress`, `empty`) for tests and `ui_shot`'s `{"fixture": …}` first line (doc-hidden; not app code) |
 | `src/icons.rs`, `src/theme.rs`, `src/markup_view.rs`, `src/order.rs` | Code-drawn icons, colour tokens, rich-text rendering, ORDER BY rewriting |
+| `src/project_settings.rs` | UI-37: project and space settings (`View::ProjectSettings`, `View::SpaceSettings`), `ProjectTab` bar, Access tab (level + per-person roles); Settings › Permissions lives in `settings.rs`, page restrictions in `wiki/restrict.rs`, `widgets/can.rs` disables controls when permissions are enforced |
 | `src/tests/` | kittest UI tests: `mod.rs` (helpers) + one file per area (`nav`, `list`, `board`, `issue`, `wiki`, `keys`, `guard`, `hostile`) |
 | `shots/` | One `ui_shot` script per area, writing PNGs under `/tmp/tc-shots/` |
 | `examples/ui_shot.rs` | Headless screenshot runner |

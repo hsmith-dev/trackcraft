@@ -4,14 +4,16 @@
 
 pub(crate) mod comments;
 pub(crate) mod diff;
+pub(crate) mod restrict;
 pub(crate) mod templates;
-pub(crate) mod tree;
+pub(crate) mod tree; // UI-37
 
 use egui::{RichText, Ui};
 use serde_json::{Value, json};
 use trackcraft_core::Id;
 use trackcraft_markup::Doc;
 
+pub(crate) use restrict::restricted; // UI-37
 pub(crate) use tree::{PageDrag, space_drop, tree_drop};
 
 /// An open wiki dialog (UI-29, UI-30).
@@ -22,6 +24,8 @@ pub(crate) enum Dialog {
     SaveTemplate(templates::SaveForm),
     /// A space's templates, by space key.
     Templates(String),
+    /// A page's restrictions (UI-37).
+    Restrict(restrict::RestrictForm),
 }
 
 /// Wiki view state beyond the editor (UI-27..30).
@@ -84,7 +88,8 @@ pub(crate) fn control(app: &mut TrackApp, method: &str, p: &Value) -> Result<Val
             Dialog::SaveTemplate(templates::SaveForm { page: id, space: page.space.to_string(), name: page.title, ..Default::default() })
         }
         "templates" => Dialog::Templates(page.space.to_string()),
-        _ => return Err("\"kind\" is copy, move, saveTemplate or templates".into()),
+        "restrict" => Dialog::Restrict(restrict::RestrictForm::open(&app.session.ws, id)), // UI-37
+        _ => return Err("\"kind\" is copy, move, saveTemplate, templates or restrict".into()),
     });
     Ok(json!({"ok": true}))
 }
@@ -100,6 +105,7 @@ pub(crate) fn dialogs(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
         Dialog::Move(f) => tree::move_dialog(app, ctx, t, f),
         Dialog::SaveTemplate(f) => templates::save_dialog(app, ctx, t, f),
         Dialog::Templates(space) => templates::manage_dialog(app, ctx, t, space),
+        Dialog::Restrict(f) => restrict::dialog(app, ctx, t, f), // UI-37
     };
     // A dialog may have opened another one (none do today); the newer one wins.
     if open && app.wiki.dialog.is_none() {
@@ -108,7 +114,7 @@ pub(crate) fn dialogs(app: &mut TrackApp, ctx: &egui::Context, t: &Tokens) {
 }
 
 use crate::theme::Tokens;
-use crate::widgets::{card, empty_state, link_truncated};
+use crate::widgets::{can, card, denied, empty_state, link_truncated};
 
 /// Breadcrumbs shown before the middle collapses to "…" (UI-6: 60-deep trees).
 const CRUMBS: usize = 4;
@@ -201,6 +207,7 @@ fn more_menu(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &trackcraft_model::
     let resp = resp.on_hover_text("More page actions");
     let is_home = p.parent.is_none();
     let id = p.id;
+    let can_restrict = can(app, "page.restrict", &json!({"id": id.0, "view": [app.session.user]})); // UI-37
     egui::Popup::menu(&resp).show(|ui| {
         if ui.add_enabled(!is_home, egui::Button::new("Move to\u{2026}")).clicked() {
             app.wiki.dialog = Some(Dialog::Move(tree::MoveForm { page: id, ..Default::default() }));
@@ -217,6 +224,18 @@ fn more_menu(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, p: &trackcraft_model::
         }
         if ui.button("Space templates\u{2026}").clicked() {
             app.wiki.dialog = Some(Dialog::Templates(p.space.to_string()));
+        }
+        // UI-37
+        ui.separator();
+        if ui
+            .add_enabled(can_restrict, egui::Button::new("Restrictions\u{2026}"))
+            .on_disabled_hover_text(denied("change who can see or edit this page"))
+            .clicked()
+        {
+            app.wiki.dialog = Some(Dialog::Restrict(restrict::RestrictForm::open(&app.session.ws, id)));
+        }
+        if ui.button("Space settings").clicked() {
+            app.push(Action::Nav(View::SpaceSettings(p.space.clone())));
         }
     });
 }
@@ -236,12 +255,22 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
     let is_home = p.parent.is_none();
     let n_comments = comments::count(&p);
     let mut to_comments = false;
+    // UI-37: controls the acting user may not use are disabled, with the reason.
+    let can_edit = can(app, "page.edit", &json!({"id": id.0}));
+    let can_delete = can(app, "page.delete", &json!({"id": id.0}));
+    let can_child = can(app, "page.create", &json!({"space": p.space.as_str(), "parent": id.0}));
     // Buttons first (right to left), so a 255-character title truncates instead (UI-6).
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             more_menu(app, ui, t, &p); // UI-29, UI-30
             crate::inbox::watch_toggle(app, ui, trackcraft_model::Target::Page(id)); // M4.5
-            if !is_home && ui.small_button("Delete").on_hover_text("Delete this page and its children").clicked() {
+            if !is_home
+                && ui
+                    .add_enabled(can_delete, egui::Button::new("Delete").small())
+                    .on_hover_text("Delete this page and its children")
+                    .on_disabled_hover_text(denied("delete this page"))
+                    .clicked()
+            {
                 app.push(Action::Run {
                     id: "page.delete",
                     params: json!({"id": id.0}),
@@ -251,12 +280,13 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
             if ui.small_button("History").clicked() {
                 app.push(Action::Nav(View::PageHistory(id)));
             }
-            if ui.small_button("+ Child page").clicked() {
+            if ui.add_enabled(can_child, egui::Button::new("+ Child page").small()).on_disabled_hover_text(denied("create pages here")).clicked() {
                 app.push(Action::OpenNewPage { space: p.space.to_string(), parent: Some(id) });
             }
             if ui
-                .add(egui::Button::new(RichText::new("Edit").color(t.on_accent).strong()).fill(t.accent))
+                .add_enabled(can_edit, egui::Button::new(RichText::new("Edit").color(t.on_accent).strong()).fill(t.accent))
                 .on_hover_text("Edit this page (E)")
+                .on_disabled_hover_text(denied("edit this page"))
                 .clicked()
             {
                 app.push(Action::EditPage(id));
@@ -266,6 +296,10 @@ pub(crate) fn page(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, id: Id) {
                 to_comments = true;
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // UI-37: a lock before the title on a restricted page.
+                if restrict::badged(&app.session.ws, id) {
+                    restrict::badge(ui, t, &app.session.ws, id);
+                }
                 ui.add(egui::Label::new(RichText::new(&p.title).size(26.0).strong()).truncate());
             });
         });
