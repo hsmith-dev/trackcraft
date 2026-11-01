@@ -9,6 +9,7 @@ mod keys;
 mod list;
 mod nav;
 mod sprints; // UI-12
+mod toast; // UI-5
 mod wiki;
 
 use egui_kittest::Harness;
