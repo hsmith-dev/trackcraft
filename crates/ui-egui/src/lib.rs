@@ -16,7 +16,9 @@ mod palette;
 mod route;
 mod shell;
 mod sprints; // UI-12
+mod status_bar; // UI-5
 pub mod theme;
+mod toast; // UI-5
 mod widgets;
 mod wiki;
 
@@ -170,7 +172,7 @@ pub struct TrackApp {
     pub(crate) guard: Option<guard::Guard>,
     /// Key events queued by the control channel (`ui.key`), fed in at the next frame.
     injected: Vec<egui::Event>,
-    toast: Option<(String, f64)>,
+    pub(crate) toasts: toast::Toasts, // UI-5
     pending: Vec<Action>,
     file_request: Option<FileRequest>,
     focus_search: bool,
@@ -219,7 +221,7 @@ impl TrackApp {
             help: false,
             guard: None,
             injected: vec![],
-            toast: None,
+            toasts: toast::Toasts::default(), // UI-5
             pending: vec![],
             file_request: None,
             focus_search: false,
@@ -240,9 +242,23 @@ impl TrackApp {
         self.file_request.take()
     }
 
-    /// Shows a short message at the bottom of the window.
+    /// Shows a short message at the bottom of the window (an info toast).
     pub fn notify(&mut self, msg: impl Into<String>) {
-        self.toast = Some((msg.into(), -1.0));
+        self.toasts.push(toast::Kind::Info, msg, None); // UI-5
+    }
+
+    // UI-5
+    /// Shows an error toast (up for 10 s, or until dismissed).
+    pub fn notify_error(&mut self, msg: impl Into<String>) {
+        self.toasts.push(toast::Kind::Error, msg, None);
+    }
+
+    // UI-5
+    /// Shows a success toast; `undoable` adds an Undo button for the change just made, shown
+    /// only while no later change has happened.
+    pub fn notify_done(&mut self, msg: impl Into<String>, undoable: bool) {
+        let stamp = undoable.then(|| self.toasts.stamp(&self.session));
+        self.toasts.push(toast::Kind::Success, msg, stamp);
     }
 
     /// The window title: workspace name, a dot when unsaved.
@@ -375,16 +391,10 @@ impl TrackApp {
         for act in fired {
             keys::run(self, act);
         }
+        // UI-5: toast timers.
         let now = ctx.input(|i| i.time);
-        if let Some((_, at)) = &mut self.toast {
-            if *at < 0.0 {
-                *at = now;
-            }
-            if now - *at > 4.0 {
-                self.toast = None;
-            } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(250));
-            }
+        if self.toasts.tick(now) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
     }
 
@@ -392,6 +402,7 @@ impl TrackApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens(ui.ctx());
         shell::top_bar(self, ui, &t);
+        status_bar::show(self, ui, &t); // UI-5
         shell::sidebar(self, ui, &t);
         egui::CentralPanel::default_margins().frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(24, 16))).show(ui, |ui| {
             match self.view.clone() {
@@ -413,20 +424,8 @@ impl TrackApp {
         guard::dialog(self, ui.ctx(), &t);
         backlog::move_picker(self, ui.ctx(), &t); // UI-11
         sprints::dialog(self, ui.ctx(), &t); // UI-12
-        self.show_toast(ui.ctx(), &t);
+        toast::show(self, ui.ctx(), &t); // UI-5
         self.apply_pending();
-    }
-
-    fn show_toast(&self, ctx: &egui::Context, t: &Tokens) {
-        let Some((msg, _)) = &self.toast else { return };
-        egui::Area::new(egui::Id::unique("toast")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0)).order(egui::Order::Foreground).show(
-            ctx,
-            |ui| {
-                egui::Frame::new().fill(t.text).corner_radius(8).inner_margin(egui::Margin::symmetric(14, 8)).show(ui, |ui| {
-                    ui.label(egui::RichText::new(msg).color(t.bg));
-                });
-            },
-        );
     }
 
     pub(crate) fn take_focus_search(&mut self) -> bool {
@@ -508,23 +507,31 @@ impl TrackApp {
     }
 
     pub(crate) fn run(&mut self, id: &str, params: &Value, then: Then) {
+        // UI-5: a copy to tell whether the command changed anything (so its toast offers Undo).
+        let before = trackcraft_engine::command(id).filter(|c| c.mutates).map(|_| self.session.ws.clone());
         match self.session.run(id, params) {
             Ok(v) => {
+                // UI-5
+                let changed = before.is_some_and(|b| b != self.session.ws);
+                if toast::moves_history(id) {
+                    self.toasts.changes = self.toasts.changes.wrapping_add(1);
+                }
                 self.jql_ran = None;
                 // Undo can remove what the current view shows.
                 self.fix_view();
                 match then {
                     Then::Nothing => {}
+                    Then::Toast(m) if changed => self.notify_done(m, true), // UI-5
                     Then::Toast(m) => self.notify(m),
                     Then::OpenIssue => {
                         if let Some(k) = v["key"].as_str().and_then(|k| IssueKey::parse(k).ok()) {
-                            self.notify(format!("Created {k}"));
+                            self.notify_done(format!("Created {k}"), changed); // UI-5
                             self.apply(Action::Nav(View::Issue(k)));
                         }
                     }
                     Then::EndPageEdit => {
                         self.page_edit = None;
-                        self.notify("Page saved");
+                        self.notify_done("Page saved", changed); // UI-5
                     }
                     Then::Nav(view) => self.apply(Action::Nav(view)),
                 }
@@ -539,7 +546,7 @@ impl TrackApp {
                     ed.conflict = Some(p.version);
                     return;
                 }
-                self.notify(e);
+                self.notify_error(e); // UI-5
             }
         }
     }
@@ -572,6 +579,8 @@ impl TrackApp {
     /// - `ui.sprintDialog` `{"kind": "start"|"complete"|"create"|"edit"|"delete", "id": n, "project": "LUME"}`:
     ///   opens a sprint dialog (`create` takes `project`; the others `id`, or `project` for its
     ///   active sprint (complete) or next planned one) (UI-12)
+    /// - `ui.toast` `{"text": …, "kind": "info"|"success"|"error", "undo": bool}`: shows a toast;
+    ///   `undo` offers Undo for the newest change (UI-5)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -581,6 +590,10 @@ impl TrackApp {
             "engine.execute" => {
                 let id = p.get("command").and_then(Value::as_str).ok_or("missing \"command\"")?;
                 let r = self.session.run(id, p.get("params").unwrap_or(&json!({})));
+                // UI-5
+                if r.is_ok() && toast::moves_history(id) {
+                    self.toasts.changes = self.toasts.changes.wrapping_add(1);
+                }
                 self.jql_ran = None;
                 self.fix_view();
                 r
@@ -637,6 +650,14 @@ impl TrackApp {
             "ui.sprintDialog" => {
                 let id = p.get("id").and_then(Value::as_u64).map(Id);
                 self.sprint_dialog = Some(sprints::SprintDialog::open(&self.session, &s("kind"), id, &s("project"))?);
+                Ok(json!({"ok": true}))
+            }
+            // UI-5
+            "ui.toast" => {
+                let kind = toast::Kind::parse(&s("kind")).ok_or("\"kind\" is info, success or error")?;
+                let undo = p.get("undo").and_then(Value::as_bool).unwrap_or(false);
+                let stamp = undo.then(|| self.toasts.stamp(&self.session));
+                self.toasts.push(kind, s("text"), stamp);
                 Ok(json!({"ok": true}))
             }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),

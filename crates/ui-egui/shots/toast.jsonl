@@ -1,0 +1,11 @@
+{"method":"ui.theme","params":{"dark":false}}
+{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}
+{"method":"engine.execute","params":{"command":"issue.transition","params":{"key":"LUME-2","to":"Done"}}}
+{"method":"ui.toast","params":{"text":"Workspace opened","kind":"info"}}
+{"method":"ui.toast","params":{"text":"issue.transition failed: LUME-2 cannot move from Done to Nowhere (no such status in the workflow)","kind":"error"}}
+{"method":"ui.toast","params":{"text":"LUME-2 moved to Done","kind":"success","undo":true}}
+{"shot":"/tmp/tc-shots/toast.png"}
+{"method":"ui.theme","params":{"dark":true}}
+{"method":"ui.navigate","params":{"view":"issue","key":"LUME-2"}}
+{"method":"ui.toast","params":{"text":"LUME-2 moved to Done","kind":"success","undo":true}}
+{"shot":"/tmp/tc-shots/toast-dark.png"}
