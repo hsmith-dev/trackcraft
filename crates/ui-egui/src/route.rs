@@ -24,6 +24,8 @@ pub enum View {
     Projects,
     /// The searchable table of every space (UI-8).
     Spaces,
+    /// Settings, on one of its tabs (UI-7).
+    Settings(crate::settings::Tab),
 }
 
 /// The view a `ui.navigate` request names:
@@ -45,6 +47,7 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
         "backlog" => View::Backlog(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?), // UI-11
         "projects" => View::Projects,                                                                                  // UI-8
         "spaces" => View::Spaces,                                                                                      // UI-8
+        "settings" => View::Settings(crate::settings::Tab::parse(&s("tab")).ok_or("\"tab\" is appearance, workspace, people or shortcuts")?), // UI-7
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.

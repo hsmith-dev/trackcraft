@@ -17,6 +17,7 @@ pub mod markup_view;
 mod order;
 mod palette;
 mod route;
+mod settings; // UI-7
 mod shell;
 mod sprints; // UI-12
 mod status_bar; // UI-5
@@ -61,6 +62,7 @@ pub(crate) enum Action {
     File(FileRequest),
     TogglePalette,
     ShowHelp,
+    #[allow(dead_code)] // UI-7: the avatar menu and Settings set the theme's three states directly.
     ToggleTheme,
     Toast(String),
     /// Close the create dialog (Escape or a backdrop click): asks first if it has typed text.
@@ -201,6 +203,7 @@ pub struct TrackApp {
     forward: Vec<View>,
     pub(crate) recent: Vec<View>,
     pub(crate) side: directory::SideUi,
+    pub(crate) settings: settings::SettingsUi, // UI-7
 }
 
 impl TrackApp {
@@ -248,6 +251,8 @@ impl TrackApp {
             forward: vec![],                        // UI-8
             recent: vec![],                         // UI-8
             side: directory::SideUi::default(),     // UI-8
+            // UI-7
+            settings: settings::SettingsUi::default(),
         }
     }
 
@@ -282,7 +287,8 @@ impl TrackApp {
     }
 
     pub(crate) fn tokens(&self, ctx: &egui::Context) -> Tokens {
-        let dark = self.dark.unwrap_or_else(|| ctx.global_style().visuals.dark_mode);
+        // UI-7: System follows the OS theme when the backend reports one.
+        let dark = self.dark.unwrap_or_else(|| ctx.system_theme().map_or(ctx.global_style().visuals.dark_mode, |th| th == egui::Theme::Dark));
         Tokens::for_dark(dark)
     }
 
@@ -374,6 +380,7 @@ impl TrackApp {
 
     /// Per-frame logic without drawing (shortcuts, toasts).
     pub fn logic(&mut self, ctx: &egui::Context) {
+        settings::sync(self, ctx); // UI-7
         let t = self.tokens(ctx);
         ctx.set_visuals(t.visuals());
         let typing = ctx.egui_wants_keyboard_input();
@@ -456,6 +463,7 @@ impl TrackApp {
                 View::SprintBoard(p, id) => issues::sprint_board(self, ui, &t, &p, id), // UI-12
                 View::Projects => directory::projects(self, ui, &t),                    // UI-8
                 View::Spaces => directory::spaces(self, ui, &t),                        // UI-8
+                View::Settings(tab) => settings::show(self, ui, &t, tab),               // UI-7
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);

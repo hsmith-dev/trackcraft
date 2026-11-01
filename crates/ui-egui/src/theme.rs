@@ -144,3 +144,96 @@ impl Tokens {
         v
     }
 }
+
+// UI-7: density and the tri-state theme.
+
+/// How tightly controls are packed: egui's default spacing, or a tighter scale for small screens
+/// and long lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Density {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+impl Density {
+    pub const ALL: [Density; 2] = [Density::Comfortable, Density::Compact];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Density::Comfortable => "Comfortable",
+            Density::Compact => "Compact",
+        }
+    }
+
+    /// The spacing this density uses (Comfortable is egui's default scale).
+    pub fn spacing(self) -> egui::style::Spacing {
+        let mut s = egui::style::Spacing::default();
+        if self == Density::Compact {
+            s.item_spacing = egui::vec2(6.0, 1.0);
+            s.button_padding = egui::vec2(6.0, 1.0);
+            s.interact_size = egui::vec2(36.0, 16.0);
+            s.menu_margin = egui::Margin::same(4);
+            s.window_margin = egui::Margin::same(4);
+            s.indent = 14.0;
+            s.menu_spacing = 1.0;
+        }
+        s
+    }
+
+    /// Applies the spacing scale to `style` (sizes outside the scale are kept).
+    pub fn apply(self, style: &mut egui::Style) {
+        let d = self.spacing();
+        let s = &mut style.spacing;
+        s.item_spacing = d.item_spacing;
+        s.button_padding = d.button_padding;
+        s.interact_size = d.interact_size;
+        s.menu_margin = d.menu_margin;
+        s.window_margin = d.window_margin;
+        s.indent = d.indent;
+        s.menu_spacing = d.menu_spacing;
+    }
+
+    /// `style` already uses this density.
+    pub fn applied(self, style: &egui::Style) -> bool {
+        let d = self.spacing();
+        let s = &style.spacing;
+        s.item_spacing == d.item_spacing && s.button_padding == d.button_padding && s.interact_size == d.interact_size && s.indent == d.indent
+    }
+}
+
+/// The theme choice: follow the system, or force light or dark (`TrackApp::dark`'s three states).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeChoice {
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark];
+
+    pub fn from_dark(dark: Option<bool>) -> ThemeChoice {
+        match dark {
+            None => ThemeChoice::System,
+            Some(false) => ThemeChoice::Light,
+            Some(true) => ThemeChoice::Dark,
+        }
+    }
+
+    pub fn dark(self) -> Option<bool> {
+        match self {
+            ThemeChoice::System => None,
+            ThemeChoice::Light => Some(false),
+            ThemeChoice::Dark => Some(true),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "System",
+            ThemeChoice::Light => "Light",
+            ThemeChoice::Dark => "Dark",
+        }
+    }
+}

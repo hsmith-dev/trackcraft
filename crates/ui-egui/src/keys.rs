@@ -158,6 +158,8 @@ pub(crate) enum Act {
     Doc,
     /// Undo a Back (UI-8).
     Forward,
+    /// Open Settings (UI-7).
+    Settings,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +223,7 @@ pub(crate) const UI_BINDINGS: &[(Scope, &str, &str, Act)] = &[
     (Scope::Board, "Shift+Left / [", "Move the card to the previous status", Act::BoardPrev),
     (Scope::Issue, "Escape", "Cancel editing", Act::Doc),
     (Scope::Global, "Alt+Right", "Forward", Act::Forward), // UI-8
+    (Scope::Global, "Mod+,", "Settings", Act::Settings),   // UI-7
 ];
 
 /// The keymap: every registry shortcut, then the UI-only bindings.
@@ -270,6 +273,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Page(id) if !app.page_edit.as_ref().is_some_and(|e| e.id == *id) => Some(Scope::Page),
         View::Page(_) | View::Home | View::PageHistory(_) => None,
         View::Projects | View::Spaces => None, // UI-8
+        View::Settings(_) => None,             // UI-7
     }
 }
 
@@ -417,6 +421,8 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
         }
         Act::Doc => {}
         Act::Forward => app.push(Action::Forward), // UI-8
+        // UI-7
+        Act::Settings => app.push(Action::Nav(View::Settings(crate::settings::Tab::Appearance))),
     }
 }
 
