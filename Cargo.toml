@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
-default-members = ["crates/*", "apps/trackcraft", "apps/trackcraft-cli", "xtask"]
+default-members = ["crates/*", "apps/trackcraft", "apps/trackcraft-cli", "apps/trackcraft-server", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,8 @@ trackcraft-model = { path = "crates/model" }
 trackcraft-store = { path = "crates/store" }
 trackcraft-engine = { path = "crates/engine" }
 trackcraft-mcp = { path = "crates/mcp" }
+trackcraft-api = { path = "crates/api" }
+trackcraft-server-lib = { path = "crates/server" }
 trackcraft-ui-egui = { path = "crates/ui-egui" }
 
 # foundation
@@ -29,6 +31,15 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 # A wall clock that works on native and in the browser.
 web-time = "1.1"
+
+# server (L5+ only; `cargo xtask layers` keeps these out of lower layers). Minimal features keep
+# build time down: HTTP/1 only, no tracing, no form/multipart. All MIT or MIT/Apache-2.0.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "1", default-features = false }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+sha2 = "0.10"
+getrandom = "0.3"
+hex = "0.4"
 
 # ui — the suite's egui fork (same pins as the sibling apps; see [patch.crates-io])
 egui = "0.37"

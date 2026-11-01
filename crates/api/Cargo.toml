@@ -1,0 +1,26 @@
+[package]
+name = "trackcraft-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "TrackCraft REST API: Jira/Confluence-compatible routes mapped onto engine commands"
+
+[dependencies]
+trackcraft-engine.workspace = true
+trackcraft-core.workspace = true
+trackcraft-model.workspace = true
+trackcraft-markup.workspace = true
+trackcraft-jql.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "sync"] }
+
+[dev-dependencies]
+tower.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }
+
+[lints]
+workspace = true

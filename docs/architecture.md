@@ -55,7 +55,8 @@ To make that possible without coupling the apps:
 | L3 | `trackcraft-store` | `.track` format: versioned JSON envelope, schema migration hook, size cap, atomic save | model |
 | L4 | `trackcraft-engine` | `Session` (workspace, acting user, undo/redo, clock), `CommandSpec` registry, catalog, sample | all of the above |
 | L5 | `trackcraft-mcp` | MCP over JSON-RPC (stdio today), two tools: `trackcraft_commands`, `trackcraft_run` | engine |
-| L5 | `trackcraft-api` (M5) | Jira/Confluence-compatible REST routes mapped onto commands | engine |
+| L5 | `trackcraft-api` | Jira/Confluence-compatible REST routes mapped onto commands; `IdentityProvider`/`EventSink` traits | engine, jql, axum |
+| L6 | `trackcraft-server-lib` | the mountable server: workspace hosting, token auth, limits, debounced atomic saves (no UI crates; see `server.md`) | api, store, axum, tokio |
 | L6 | `trackcraft-ui-egui` | the front end: views push actions that run as commands after drawing; same egui fork, craft-ui and test conventions as the siblings | engine, model, markup |
 | L7 | apps | `trackcraft-cli`; later `trackcraft` (desktop), `trackcraft-server`, `trackcraft-web` | |
 
@@ -101,3 +102,4 @@ it with an operation log (each command records its inverse), which is also what 
 
 - 2026-10-31: first version (M0).
 - 2026-10-31: servers: one per app, plus an optional suite server that installs both (owner decision).
+- 2026-10-31: M4.1: `trackcraft-api` and `trackcraft-server-lib` (L6, above the API it serves) land; `docs/server.md`.

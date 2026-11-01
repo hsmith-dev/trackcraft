@@ -1,0 +1,31 @@
+[package]
+name = "trackcraft-server-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "The mountable TrackCraft server: workspace hosting, auth, persistence, the REST API"
+
+[lib]
+name = "trackcraft_server"
+
+[dependencies]
+trackcraft-api.workspace = true
+trackcraft-engine.workspace = true
+trackcraft-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "sync", "net"] }
+sha2.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync", "net"] }
+
+[lints]
+workspace = true
