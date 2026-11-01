@@ -4,6 +4,7 @@
 mod backlog; // UI-11
 mod board;
 mod guard;
+mod hostile; // UI-6
 mod issue;
 mod keys;
 mod list;

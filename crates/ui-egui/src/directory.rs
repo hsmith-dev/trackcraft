@@ -323,7 +323,12 @@ pub(crate) fn projects(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let rows = project_rows(app, if app.side.query_for == Some(Kind::Project) { &q } else { "" });
     header(app, ui, t, Kind::Project, total, rows.len());
     if rows.is_empty() {
-        crate::widgets::empty_state(ui, t, if total == 0 { "No projects yet." } else { "No project matches the search." });
+        let (title, hint) = if total == 0 {
+            ("No projects yet", "Create one with the button above.")
+        } else {
+            ("No project matches the search", "Try fewer or different words.")
+        };
+        crate::widgets::empty_state(ui, t, title, hint, None);
         return;
     }
     let mut actions = Vec::new();
@@ -362,7 +367,12 @@ pub(crate) fn spaces(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
     let rows = space_rows(app, if app.side.query_for == Some(Kind::Space) { &q } else { "" });
     header(app, ui, t, Kind::Space, total, rows.len());
     if rows.is_empty() {
-        crate::widgets::empty_state(ui, t, if total == 0 { "No spaces yet." } else { "No space matches the search." });
+        let (title, hint) = if total == 0 {
+            ("No spaces yet", "Create one with the button above.")
+        } else {
+            ("No space matches the search", "Try fewer or different words.")
+        };
+        crate::widgets::empty_state(ui, t, title, hint, None);
         return;
     }
     let mut actions = Vec::new();

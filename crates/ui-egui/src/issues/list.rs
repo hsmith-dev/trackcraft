@@ -173,7 +173,7 @@ fn empty(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
             ui.add_space(24.0);
             ui.label(RichText::new("No issues match this search").size(16.0).strong());
             ui.add_space(4.0);
-            empty_state(ui, t, if has_filter { "Try a broader query, or clear the filter." } else { "This workspace has no issues yet." });
+            empty_state(ui, t, "", if has_filter { "Try a broader query, or clear the filter." } else { "This workspace has no issues yet." }, None);
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 // Centre the buttons: measure is overkill here, a fixed indent is enough.

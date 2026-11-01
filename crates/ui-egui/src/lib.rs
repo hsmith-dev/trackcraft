@@ -7,6 +7,8 @@
 
 mod backlog; // UI-11
 mod directory; // UI-8
+#[doc(hidden)]
+pub mod fixtures; // UI-6
 mod guard;
 pub mod icons;
 mod issues;
