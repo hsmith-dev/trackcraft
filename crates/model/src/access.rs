@@ -439,6 +439,7 @@ impl Workspace {
             i.links.retain(|l| !hidden_projects.contains(&l.target.project));
         }
         w.sprints.retain(|_, s| !hidden_projects.contains(&s.project));
+        w.fields.retain(|k, _| !hidden_projects.contains(k)); // M2.4
         w.spaces.retain(|k, _| !hidden_spaces.contains(k));
         w.pages.retain(|id, _| !hidden_pages.contains(id));
         w.templates.retain(|_, t| t.space.as_ref().is_none_or(|k| !hidden_spaces.contains(k)));

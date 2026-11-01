@@ -4,11 +4,12 @@
 //! `status.name`, `statusCategory`, `version.number`) so agents that know those APIs read ours.
 
 use serde_json::{Value, json};
-use trackcraft_model::{Change, Issue, Page, Project, Space, Sprint, StatusCategory, Workspace};
+use trackcraft_core::{Id, ProjectKey};
+use trackcraft_model::{Change, Component, FieldDef, FieldValue, Issue, Page, Project, Space, Sprint, StatusCategory, Version, Workspace};
 
 pub fn issue(ws: &Workspace, i: &Issue) -> Value {
     let cat = ws.status_category(i);
-    json!({
+    let mut v = json!({
         "key": i.key.to_string(),
         "project": i.key.project.as_str(),
         "issuetype": i.issue_type,
@@ -30,6 +31,96 @@ pub fn issue(ws: &Workspace, i: &Issue) -> Value {
         "rank": i.rank,
         "sprint": i.sprint.and_then(|id| ws.sprints.get(&id)).map(|s| json!({"id": s.id.0, "name": s.name, "state": s.state.name()})),
         "closedSprints": i.past_sprints.iter().filter_map(|id| ws.sprints.get(id)).map(|s| json!({"id": s.id.0, "name": s.name})).collect::<Vec<_>>(),
+    });
+    // M2.4: components, versions and custom fields under the REST names.
+    if let Some(o) = v.as_object_mut() {
+        for (k, val) in issue_fields(ws, i) {
+            o.insert(k, val);
+        }
+    }
+    v
+}
+
+/// M2.4: `components`, `fixVersions`, `versions` (affects) and one `customfield_<id>` per
+/// field of the issue's project (null when unset), plus `names` (`customfield_<id>` → name).
+pub fn issue_fields(ws: &Workspace, i: &Issue) -> Vec<(String, Value)> {
+    let d = ws.project_fields(&i.key.project).cloned().unwrap_or_default();
+    let comps: Vec<Value> =
+        i.components.iter().filter_map(|id| d.component(*id)).map(|c| json!({"id": c.id.0.to_string(), "name": c.name})).collect();
+    let vers = |ids: &[Id]| -> Vec<Value> {
+        ids.iter()
+            .filter_map(|id| d.version(*id))
+            .map(|v| json!({"id": v.id.0.to_string(), "name": v.name, "released": v.released, "archived": v.archived, "releaseDate": v.release_date.map(day)}))
+            .collect()
+    };
+    let mut out = vec![
+        ("components".to_string(), Value::Array(comps)),
+        ("fixVersions".to_string(), Value::Array(vers(&i.fix_versions))),
+        ("versions".to_string(), Value::Array(vers(&i.affects_versions))),
+    ];
+    let mut names = serde_json::Map::new();
+    for f in &d.fields {
+        let key = format!("customfield_{}", f.id);
+        names.insert(key.clone(), json!(f.name));
+        out.push((key, i.custom.get(&f.id).map_or(Value::Null, |v| field_value(ws, v))));
+    }
+    if !names.is_empty() {
+        out.push(("names".to_string(), Value::Object(names)));
+    }
+    out
+}
+
+fn day(d: chrono::NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+
+/// A custom field value in the REST shape: text, URL and numbers as is, dates `YYYY-MM-DD`,
+/// selects `{"value"}`, multi-selects `[{"value"}]`, users `{"accountId", "displayName"}`.
+pub fn field_value(ws: &Workspace, v: &FieldValue) -> Value {
+    match v {
+        FieldValue::Text(s) | FieldValue::Url(s) => json!(s),
+        FieldValue::Number(n) => json!(n),
+        FieldValue::Date(d) => json!(day(*d)),
+        FieldValue::Select(s) => json!({"value": s}),
+        FieldValue::MultiSelect(list) => Value::Array(list.iter().map(|s| json!({"value": s})).collect()),
+        FieldValue::User(u) => json!({"accountId": u, "displayName": ws.users.get(u).map_or(u.as_str(), |x| x.display_name.as_str())}),
+    }
+}
+
+/// A custom field definition (`field.list`).
+pub fn field_def(f: &FieldDef) -> Value {
+    json!({
+        "id": f.id.0,
+        "key": format!("customfield_{}", f.id),
+        "name": f.name,
+        "type": f.kind.name(),
+        "options": f.kind.options(),
+        "required": f.required,
+        "description": f.description,
+        "clauseNames": [format!("cf[{}]", f.id), f.name.clone()],
+    })
+}
+
+/// A component in the REST shape, plus its issue count.
+pub fn component(ws: &Workspace, project: &ProjectKey, c: &Component) -> Value {
+    let n = ws.issues.values().filter(|i| &i.key.project == project && i.components.contains(&c.id)).count();
+    json!({"id": c.id.0.to_string(), "name": c.name, "description": c.description, "lead": c.lead, "project": project.as_str(), "issueCount": n})
+}
+
+/// A version in the REST shape (`startDate`, `releaseDate`, `released`, `archived`), plus
+/// progress: issues fixed in it and how many are done.
+pub fn version(ws: &Workspace, project: &ProjectKey, v: &Version) -> Value {
+    let (done, total) = ws.version_progress(v.id);
+    json!({
+        "id": v.id.0.to_string(),
+        "name": v.name,
+        "description": v.description,
+        "startDate": v.start.map(day),
+        "releaseDate": v.release_date.map(day),
+        "released": v.released,
+        "archived": v.archived,
+        "project": project.as_str(),
+        "issues": {"total": total, "done": done},
     })
 }
 

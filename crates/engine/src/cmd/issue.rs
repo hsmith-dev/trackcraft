@@ -17,13 +17,13 @@ pub fn commands() -> Vec<CommandSpec> {
         CommandSpec::new("project.list", "All Projects", "Projects", project_list).query(),
         CommandSpec::new("project.get", "Project Details", "Projects", project_get).params(r#"{"key": "LUME"}"#).query(),
         CommandSpec::new("issue.create", "Create Issue", "Issue", issue_create).key("C").params(
-            r#"{"project": "LUME", "summary": "…", "type": "Task", "description": "Markdown or ADF", "priority": "High", "assignee": "ann", "labels": ["ui"], "parent": "LUME-1", "storyPoints": 3, "sprint": 7 (optional: an open sprint of the project)}"#,
+            r#"{"project": "LUME", "summary": "…", "type": "Task", "description": "Markdown or ADF", "priority": "High", "assignee": "ann", "labels": ["ui"], "parent": "LUME-1", "storyPoints": 3, "sprint": 7 (optional: an open sprint of the project), "custom": {"Customer": "Acme"}, "components": ["Docs"], "fixVersions": ["1.2"], "affectsVersions": ["1.1"]} (required custom fields must be given)"#,
         ),
         CommandSpec::new("issue.get", "View Issue", "Issue", issue_get).params(r#"{"key": "LUME-1"}"#).query(),
         CommandSpec::new("issue.history", "Change History", "Issue › Activity", issue_history).params(r#"{"key": "LUME-1"}"#).query(),
         CommandSpec::new("issue.edit", "Edit Issue", "Issue", issue_edit)
             .key("E")
-            .params(r#"{"key": "LUME-1", "summary": "…", "description": "…", "priority": "Low", "labels": ["a"], "storyPoints": 5, "type": "Bug", "parent": "LUME-2" | null (each optional; a sub-task needs a parent, an epic has none)}"#),
+            .params(r#"{"key": "LUME-1", "summary": "…", "description": "…", "priority": "Low", "labels": ["a"], "storyPoints": 5, "type": "Bug", "parent": "LUME-2" | null, "custom": {"Customer" or "customfield_12": value | null}, "components": ["Docs"], "fixVersions": ["1.2"], "affectsVersions": [] (each optional; a sub-task needs a parent, an epic has none)}"#),
         CommandSpec::new("issue.assign", "Assign", "Issue", issue_assign).key("A").params(r#"{"key": "LUME-1", "assignee": "ann" | null}"#),
         CommandSpec::new("issue.assignToMe", "Assign to Me", "Issue", issue_assign_me).key("I").params(r#"{"key": "LUME-1"}"#),
         CommandSpec::new("issue.transitions", "Available Transitions", "Issue › Workflow", issue_transitions).params(r#"{"key": "LUME-1"}"#).query(),
@@ -93,7 +93,15 @@ fn issue_create(s: &mut Session, p: &Value) -> CmdResult {
     let sprint = params::opt_id(p, "sprint").map_err(|_| "\"sprint\" must be a sprint id".to_string())?;
     let now = s.now();
     let user = s.user.clone();
+    // M2.4: custom fields, components and versions are resolved against the project first.
+    let pk = s.ws.project(&new.project).map_err(err)?.key.clone();
+    let extra = super::fields::requested(&s.ws, &pk, p)?;
     let key = s.ws.create_issue(new, &user, now).map_err(err)?;
+    s.ws.init_issue_fields(&key.to_string(), extra.into_initial()).map_err(err)?;
+    let missing = s.ws.missing_required(&key.to_string()).map_err(err)?;
+    if !missing.is_empty() {
+        return Err(format!("required fields have no value: {}", missing.join(", ")));
+    }
     // Inline create in a sprint: one command, so one undo step.
     if let Some(id) = sprint {
         let i = s.ws.issue(&key.to_string()).map_err(err)?;
@@ -160,8 +168,14 @@ fn issue_edit(s: &mut Session, p: &Value) -> CmdResult {
             changed.push("parent");
         }
     }
+    // M2.4: custom fields, components, versions.
+    let pk = s.ws.issue(key).map_err(err)?.key.project.clone();
+    let extra = super::fields::requested(&s.ws, &pk, p)?;
+    if !extra.is_empty() {
+        changed.extend(extra.apply(s, key)?);
+    }
     if changed.is_empty() {
-        return Err("nothing to change: pass summary, description, priority, labels, storyPoints, type or parent".into());
+        return Err("nothing to change: pass summary, description, priority, labels, storyPoints, type, parent, custom, components, fixVersions or affectsVersions".into());
     }
     Ok(json!({"key": key.trim().to_ascii_uppercase(), "changed": changed}))
 }

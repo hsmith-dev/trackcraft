@@ -2,6 +2,7 @@
 
 mod access;
 mod agile;
+mod fields; // M2.4
 mod file;
 mod import;
 mod issue;
@@ -19,5 +20,6 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(import::commands());
     v.extend(notify::commands()); // M4.5
     v.extend(access::commands());
+    v.extend(fields::commands()); // M2.4
     v
 }

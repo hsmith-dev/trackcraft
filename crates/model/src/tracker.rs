@@ -226,6 +226,18 @@ pub struct Issue {
     /// Closed sprints the issue was in when they completed, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub past_sprints: Vec<Id>,
+    /// M2.4: custom field values by field id (older files load with none).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub custom: std::collections::BTreeMap<crate::FieldId, crate::FieldValue>,
+    /// M2.4: component ids of the issue's project.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<Id>,
+    /// M2.4: fix version ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fix_versions: Vec<Id>,
+    /// M2.4: affects version ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affects_versions: Vec<Id>,
 }
 
 /// What `issue.create` takes.
@@ -282,7 +294,7 @@ impl Workspace {
         self.issues.get_mut(&k).ok_or_else(|| ModelError::NoSuchIssue(key.to_string()))
     }
 
-    fn check_user(&self, u: Option<&str>) -> Result<Option<String>> {
+    pub(crate) fn check_user(&self, u: Option<&str>) -> Result<Option<String>> {
         match u.map(str::trim).filter(|u| !u.is_empty()) {
             Some(u) => Ok(Some(self.user(u)?.id.clone())),
             None => Ok(None),
@@ -345,6 +357,10 @@ impl Workspace {
             rank,
             sprint,
             past_sprints: vec![],
+            custom: Default::default(),
+            components: vec![],
+            fix_versions: vec![],
+            affects_versions: vec![],
         };
         let reporter = issue.reporter.clone();
         self.issues.insert(key.clone(), issue);

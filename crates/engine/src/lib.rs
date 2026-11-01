@@ -346,6 +346,8 @@ mod tests;
 #[cfg(test)]
 mod tests_access;
 #[cfg(test)]
+mod tests_fields; // M2.4
+#[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
 mod tests_sync;

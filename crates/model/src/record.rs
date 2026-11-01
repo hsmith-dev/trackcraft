@@ -1,8 +1,9 @@
 //! Issues as JQL records. Field names follow Jira's documented JQL fields.
 
+use trackcraft_core::Id;
 use trackcraft_jql::{FieldChange, FieldHistory, FieldValue, Record};
 
-use crate::{Issue, SprintState, Workspace, priority_rank};
+use crate::{FieldDef, Issue, SprintState, Workspace, field_id_of, priority_rank};
 
 pub struct IssueRecord<'a> {
     pub ws: &'a Workspace,
@@ -47,7 +48,13 @@ impl Record for IssueRecord<'_> {
                     .collect(),
             ),
             "issuelinktype" => FieldValue::Many(i.links.iter().map(|l| l.kind.outward().to_string()).collect()),
-            _ => FieldValue::None,
+            // M2.4: components and versions match by name or id (`component = Docs`, `fixVersion = 12`).
+            "component" | "components" => self.named(&i.components, |d, id| d.component(id).map(|c| c.name.clone())),
+            "fixversion" | "fixversions" => self.named(&i.fix_versions, |d, id| d.version(id).map(|v| v.name.clone())),
+            "affectedversion" | "affectsversion" | "affectsversions" | "versions" => {
+                self.named(&i.affects_versions, |d, id| d.version(id).map(|v| v.name.clone()))
+            }
+            _ => self.custom(name),
         }
     }
 
@@ -75,9 +82,24 @@ impl Record for IssueRecord<'_> {
     }
 
     /// `openSprints()` (future and active) and `closedSprints()`: sprint ids of the issue's
-    /// project.
-    fn function(&self, name: &str, _args: &[String]) -> Option<Vec<String>> {
-        let open = match name.to_ascii_lowercase().as_str() {
+    /// project. M2.4: `unreleasedVersions()` / `releasedVersions()`: version ids of the named
+    /// projects (`releasedVersions(LUME)`), or of the issue's project without arguments.
+    fn function(&self, name: &str, args: &[String]) -> Option<Vec<String>> {
+        let lower = name.to_ascii_lowercase();
+        if lower == "unreleasedversions" || lower == "releasedversions" {
+            let released = lower == "releasedversions";
+            let mine = self.issue.key.project.as_str();
+            let wanted = |k: &str| if args.is_empty() { k == mine } else { args.iter().any(|a| a.trim().eq_ignore_ascii_case(k)) };
+            return Some(
+                self.ws
+                    .fields
+                    .iter()
+                    .filter(|(k, _)| wanted(k.as_str()))
+                    .flat_map(|(_, d)| d.versions.iter().filter(|v| v.released == released).map(|v| v.id.0.to_string()))
+                    .collect(),
+            );
+        }
+        let open = match lower.as_str() {
             "opensprints" => true,
             "closedsprints" => false,
             _ => return None,
@@ -101,5 +123,36 @@ impl Record for IssueRecord<'_> {
             s.push_str(&c.body.plain_text());
         }
         s
+    }
+}
+
+impl IssueRecord<'_> {
+    /// Ids and names of components or versions, so both match.
+    fn named(&self, ids: &[Id], name: impl Fn(&crate::ProjectFields, Id) -> Option<String>) -> FieldValue {
+        let Some(d) = self.ws.fields.get(&self.issue.key.project) else { return FieldValue::Many(vec![]) };
+        FieldValue::Many(ids.iter().filter_map(|id| name(d, *id).map(|n| [id.0.to_string(), n])).flatten().collect())
+    }
+
+    /// M2.4: a custom field of the issue's project, by `cf[ID]` or by name.
+    fn custom(&self, name: &str) -> FieldValue {
+        let Some(d) = self.ws.fields.get(&self.issue.key.project) else { return FieldValue::None };
+        let lower = name.trim().to_ascii_lowercase();
+        let def: Option<&FieldDef> = match lower.strip_prefix("cf[").and_then(|r| r.strip_suffix(']')) {
+            Some(_) => field_id_of(&lower).and_then(|id| d.field(id)),
+            None => d.fields.iter().find(|f| f.name.eq_ignore_ascii_case(name.trim())),
+        };
+        let Some(def) = def else { return FieldValue::None };
+        match self.issue.custom.get(&def.id) {
+            None => FieldValue::None,
+            Some(crate::FieldValue::Text(s) | crate::FieldValue::Url(s) | crate::FieldValue::User(s)) => FieldValue::Text(s.clone()),
+            Some(crate::FieldValue::Number(n)) => FieldValue::Number(*n),
+            Some(crate::FieldValue::Date(day)) => day.and_hms_opt(0, 0, 0).map_or(FieldValue::None, |t| FieldValue::Time(t.and_utc())),
+            // Selects sort in option order (`ORDER BY "Severity"`), compare by name.
+            Some(crate::FieldValue::Select(s)) => {
+                let rank = def.kind.options().iter().position(|o| o == s).and_then(|p| i64::try_from(p).ok()).unwrap_or(i64::MAX);
+                FieldValue::Ranked { name: s.clone(), rank }
+            }
+            Some(crate::FieldValue::MultiSelect(v)) => FieldValue::Many(v.clone()),
+        }
     }
 }

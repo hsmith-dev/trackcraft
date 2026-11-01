@@ -8,6 +8,7 @@
 
 mod access;
 mod agile;
+mod fields; // M2.4
 mod import;
 mod notify;
 mod rank;
@@ -22,6 +23,11 @@ use trackcraft_core::{Id, IdGen, IssueKey, ProjectKey};
 
 pub use access::{Access, AccessLevel, Grants, MAX_RESTRICTION_USERS, ProjectRole, Restriction, SpaceRole, WorkspaceRole};
 pub use agile::{Anchor, Completion, MAX_GOAL, MAX_MOVE, MAX_SPRINTS, MoveOpenTo, Sprint, SprintEdit, SprintState};
+pub use fields::{
+    Component, ComponentEdit, FIELD_KINDS, FieldDef, FieldEdit, FieldKind, FieldValue, HISTORY_AFFECTS_VERSION, HISTORY_COMPONENT,
+    HISTORY_FIX_VERSION, IssueFields, MAX_COMPONENTS, MAX_DEF_DESCRIPTION, MAX_FIELDS, MAX_OPTIONS, MAX_PER_ISSUE, MAX_TEXT_VALUE, MAX_URL,
+    MAX_VERSIONS, NewVersion, ProjectFields, RESERVED_FIELD_NAMES, Version, VersionEdit, VersionList, field_id_of, parse_day,
+}; // M2.4
 pub use import::MAX_IMPORTED_KINDS;
 pub use notify::{Inbox, MAX_NOTIFICATIONS, MAX_WATCHES, NOTIFY_EXCERPT, Notification, NotifyKind, Target, Watches};
 pub use rank::{MAX_RANK_LEN, is_valid_rank, rank_between, ranks_between, rebalanced};
@@ -83,6 +89,9 @@ impl std::error::Error for ModelError {}
 
 pub type Result<T> = std::result::Result<T, ModelError>;
 
+/// M2.4: a custom field's id (`cf[ID]` in JQL, `customfield_ID` over REST).
+pub type FieldId = Id;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     /// Stable account name (`ann`), used in JQL and mentions.
@@ -114,6 +123,9 @@ pub struct Workspace {
     /// Roles, access levels and page restrictions (M4.3; older files load with none: everyone is an admin).
     #[serde(default, skip_serializing_if = "Access::is_empty")]
     pub access: Access,
+    /// M2.4: custom fields, components and versions per project (older files load with none).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<ProjectKey, ProjectFields>,
     /// Transient (never saved): whether history entries are being grouped into one change.
     #[serde(skip)]
     batch: Batch,
@@ -149,6 +161,7 @@ impl Workspace {
             inbox: Inbox::default(),
             ids: IdGen::default(),
             access: Access::default(),
+            fields: BTreeMap::new(),
             batch: Batch::Off,
         }
     }
