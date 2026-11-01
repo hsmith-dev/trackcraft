@@ -54,7 +54,7 @@ pub const FEATURES: &[Feature] = &[
     f(J, "Issues", "Clone issue", ""),
     f(J, "Issues", "Move issue between projects", ""),
     f(J, "Issues", "Bulk change", ""),
-    f(J, "Issues", "Activity / change history", ""),
+    f(J, "Issues", "Activity / change history", "issue.history"),
     f(J, "Issues", "@mentions", ""),
     // Jira — workflow
     f(J, "Workflow", "Transition issue", "issue.transition"),
@@ -71,7 +71,7 @@ pub const FEATURES: &[Feature] = &[
     f(J, "Search", "Relative dates (-7d)", "search.jql"),
     f(J, "Search", "Text search (text ~)", "search.jql"),
     f(J, "Search", "Saved filters", ""),
-    f(J, "Search", "WAS / CHANGED history operators", ""),
+    f(J, "Search", "WAS / CHANGED history operators", "search.jql"),
     f(J, "Search", "Basic (non-JQL) search builder", ""),
     f(J, "Search", "Export results (CSV)", ""),
     // Jira — agile

@@ -45,12 +45,19 @@ pub fn workspace(now: Timestamp) -> Workspace {
         if let Ok(k) = w.create_issue(new, &reporter, ago(days))
             && let Some(st) = status
         {
-            let _ = w.transition(&k.to_string(), st, ago(days / 2));
+            let key = k.to_string();
+            // Software issues past In Progress went through it first, so the history (and JQL
+            // `status WAS "In Progress"`) has something to show.
+            if k.project.as_str() == "LUME" && st != "In Progress" {
+                let _ = w.transition(&key, "In Progress", &reporter, ago(days * 3 / 4));
+            }
+            let _ = w.transition(&key, st, &reporter, ago(days / 2));
         }
     }
     let _ = w.set_description(
         "LUME-2",
         Doc::plain("Keep the most recently opened notes readable without a connection.\n\nOut of scope: editing offline (see LUME-1)."),
+        "riley",
         ago(18),
     );
     let _ = w.create_issue(
@@ -65,7 +72,7 @@ pub fn workspace(now: Timestamp) -> Workspace {
         "sam",
         ago(10),
     );
-    let _ = w.link("LUME-6", LinkKind::Blocks, "LUME-2", ago(2));
+    let _ = w.link("LUME-6", LinkKind::Blocks, "LUME-2", "riley", ago(2));
     let _ = w.add_comment("LUME-4", "riley", Doc::plain("Reproduced on the latest build. Contrast ratio is about 2:1."), ago(5));
     let _ = w.add_comment("LUME-4", "jo", Doc::plain("Fix is up for review; using the theme's text token now."), ago(1));
 

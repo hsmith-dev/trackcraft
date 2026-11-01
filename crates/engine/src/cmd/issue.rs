@@ -20,6 +20,7 @@ pub fn commands() -> Vec<CommandSpec> {
             r#"{"project": "LUME", "summary": "…", "type": "Task", "description": "Markdown or ADF", "priority": "High", "assignee": "ann", "labels": ["ui"], "parent": "LUME-1", "storyPoints": 3}"#,
         ),
         CommandSpec::new("issue.get", "View Issue", "Issue", issue_get).params(r#"{"key": "LUME-1"}"#).query(),
+        CommandSpec::new("issue.history", "Change History", "Issue › Activity", issue_history).params(r#"{"key": "LUME-1"}"#).query(),
         CommandSpec::new("issue.edit", "Edit Issue", "Issue", issue_edit)
             .key("E")
             .params(r#"{"key": "LUME-1", "summary": "…", "description": "…", "priority": "Low", "labels": ["a"], "storyPoints": 5 (each optional)}"#),
@@ -89,29 +90,35 @@ fn issue_get(s: &mut Session, p: &Value) -> CmdResult {
     Ok(view::issue(&s.ws, i))
 }
 
+/// The issue's activity, newest first, one entry per command (Jira changelog shape).
+fn issue_history(s: &mut Session, p: &Value) -> CmdResult {
+    let i = s.ws.issue(params::str(p, "key")?).map_err(err)?;
+    Ok(Value::Array(view::history(i)))
+}
+
 fn issue_edit(s: &mut Session, p: &Value) -> CmdResult {
     let key = params::str(p, "key")?;
     s.ws.issue(key).map_err(err)?;
-    let now = s.now();
+    let (now, me) = (s.now(), s.user.clone());
     let mut changed = Vec::new();
     if let Some(v) = params::opt_str(p, "summary")? {
-        s.ws.set_summary(key, v, now).map_err(err)?;
+        s.ws.set_summary(key, v, &me, now).map_err(err)?;
         changed.push("summary");
     }
     if let Some(d) = params::opt_doc(p, "description")? {
-        s.ws.set_description(key, d, now).map_err(err)?;
+        s.ws.set_description(key, d, &me, now).map_err(err)?;
         changed.push("description");
     }
     if let Some(v) = params::opt_str(p, "priority")? {
-        s.ws.set_priority(key, v, now).map_err(err)?;
+        s.ws.set_priority(key, v, &me, now).map_err(err)?;
         changed.push("priority");
     }
     if let Some(l) = params::strings(p, "labels")? {
-        s.ws.set_labels(key, &l, now).map_err(err)?;
+        s.ws.set_labels(key, &l, &me, now).map_err(err)?;
         changed.push("labels");
     }
     if p.get("storyPoints").is_some() {
-        s.ws.set_story_points(key, params::opt_f64(p, "storyPoints")?, now).map_err(err)?;
+        s.ws.set_story_points(key, params::opt_f64(p, "storyPoints")?, &me, now).map_err(err)?;
         changed.push("storyPoints");
     }
     if changed.is_empty() {
@@ -126,15 +133,15 @@ fn issue_assign(s: &mut Session, p: &Value) -> CmdResult {
         return Err("missing \"assignee\" (a user id, or null to unassign)".into());
     }
     let who = params::opt_str(p, "assignee")?;
-    let now = s.now();
-    s.ws.assign(key, who, now).map_err(err)?;
+    let (now, me) = (s.now(), s.user.clone());
+    s.ws.assign(key, who, &me, now).map_err(err)?;
     Ok(json!({"key": key.trim().to_ascii_uppercase(), "assignee": who}))
 }
 
 fn issue_assign_me(s: &mut Session, p: &Value) -> CmdResult {
     let key = params::str(p, "key")?;
     let (now, me) = (s.now(), s.user.clone());
-    s.ws.assign(key, Some(&me), now).map_err(err)?;
+    s.ws.assign(key, Some(&me), &me, now).map_err(err)?;
     Ok(json!({"key": key.trim().to_ascii_uppercase(), "assignee": me}))
 }
 
@@ -147,8 +154,8 @@ fn issue_transitions(s: &mut Session, p: &Value) -> CmdResult {
 fn issue_transition(s: &mut Session, p: &Value) -> CmdResult {
     let key = params::str(p, "key")?;
     let to = params::str(p, "to")?;
-    let now = s.now();
-    s.ws.transition(key, to, now).map_err(err)?;
+    let (now, me) = (s.now(), s.user.clone());
+    s.ws.transition(key, to, &me, now).map_err(err)?;
     let i = s.ws.issue(key).map_err(err)?;
     Ok(json!({"key": i.key.to_string(), "status": i.status}))
 }
@@ -164,15 +171,16 @@ fn issue_comment(s: &mut Session, p: &Value) -> CmdResult {
 fn issue_delete_comment(s: &mut Session, p: &Value) -> CmdResult {
     let key = params::str(p, "key")?;
     let id: Id = params::id(p, "id")?;
-    s.ws.delete_comment(key, id).map_err(err)?;
+    let (now, me) = (s.now(), s.user.clone());
+    s.ws.delete_comment(key, id, &me, now).map_err(err)?;
     Ok(json!({"deleted": id.0}))
 }
 
 fn issue_link(s: &mut Session, p: &Value) -> CmdResult {
     let ty = params::str(p, "type")?;
     let kind = LinkKind::parse(ty).ok_or("\"type\" is one of: blocks, relates to, duplicates, clones")?;
-    let now = s.now();
-    s.ws.link(params::str(p, "key")?, kind, params::str(p, "target")?, now).map_err(err)?;
+    let (now, me) = (s.now(), s.user.clone());
+    s.ws.link(params::str(p, "key")?, kind, params::str(p, "target")?, &me, now).map_err(err)?;
     Ok(json!({"linked": true}))
 }
 

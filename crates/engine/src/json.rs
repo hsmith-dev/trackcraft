@@ -4,7 +4,7 @@
 //! `status.name`, `statusCategory`, `version.number`) so agents that know those APIs read ours.
 
 use serde_json::{Value, json};
-use trackcraft_model::{Issue, Page, Project, Space, Workspace};
+use trackcraft_model::{Change, Issue, Page, Project, Space, Workspace};
 
 pub fn issue(ws: &Workspace, i: &Issue) -> Value {
     let cat = ws.status_category(i);
@@ -26,7 +26,27 @@ pub fn issue(ws: &Workspace, i: &Issue) -> Value {
         "resolved": i.resolved.map(|t| t.to_rfc3339()),
         "comments": i.comments.iter().map(|c| json!({"id": c.id.0, "author": c.author, "body": c.body.to_markdown(), "created": c.created.to_rfc3339()})).collect::<Vec<_>>(),
         "links": i.links.iter().map(|l| json!({"type": l.kind.outward(), "key": l.target.to_string()})).collect::<Vec<_>>(),
+        "history": history_groups(i).len(),
     })
+}
+
+/// History entries grouped by change id (one group per command), oldest first.
+fn history_groups(i: &Issue) -> Vec<&[Change]> {
+    i.history.chunk_by(|a, b| a.id == b.id).collect()
+}
+
+/// An issue's change history, newest first, in the Jira changelog shape:
+/// `{"id", "author", "created", "items": [{"field", "fromString", "toString"}]}`.
+pub fn history(i: &Issue) -> Vec<Value> {
+    history_groups(i)
+        .into_iter()
+        .rev()
+        .filter_map(|g| {
+            let first = g.first()?;
+            let items: Vec<Value> = g.iter().map(|c| json!({"field": c.field, "fromString": c.from, "toString": c.to})).collect();
+            Some(json!({"id": first.id.0, "author": first.author, "created": first.at.to_rfc3339(), "items": items}))
+        })
+        .collect()
 }
 
 /// One line per issue, for lists and search results.

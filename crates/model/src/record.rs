@@ -1,6 +1,6 @@
 //! Issues as JQL records. Field names follow Jira's documented JQL fields.
 
-use trackcraft_jql::{FieldValue, Record};
+use trackcraft_jql::{FieldChange, FieldHistory, FieldValue, Record};
 
 use crate::{Issue, Workspace, priority_rank};
 
@@ -37,6 +37,29 @@ impl Record for IssueRecord<'_> {
             "issuelinktype" => FieldValue::Many(i.links.iter().map(|l| l.kind.outward().to_string()).collect()),
             _ => FieldValue::None,
         }
+    }
+
+    /// Value history for `WAS`/`CHANGED`: status, assignee and priority.
+    fn history(&self, name: &str) -> Option<FieldHistory> {
+        let i = self.issue;
+        let (field, current) = match name.to_ascii_lowercase().as_str() {
+            "status" => ("status", Some(i.status.clone())),
+            "assignee" => ("assignee", i.assignee.clone()),
+            "priority" => ("priority", Some(i.priority.clone())),
+            _ => return None,
+        };
+        let changes: Vec<FieldChange> = i
+            .history
+            .iter()
+            .filter(|c| c.field == field)
+            .map(|c| FieldChange { at: c.at, by: c.author.clone(), from: c.from.clone(), to: c.to.clone() })
+            .collect();
+        let initial = match changes.first() {
+            Some(c) => c.from.clone(),
+            None => current,
+        };
+        let created_by = i.history.iter().find(|c| c.field == "created").map_or_else(|| i.reporter.clone(), |c| c.author.clone());
+        Some(FieldHistory { created: Some(i.created), created_by: Some(created_by), initial, changes })
     }
 
     fn text(&self) -> String {
