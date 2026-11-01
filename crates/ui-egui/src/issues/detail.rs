@@ -40,6 +40,7 @@ fn detail_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
         .unwrap_or_default();
 
     let parent_exists = issue.parent.as_ref().is_some_and(|p| app.session.ws.issues.contains_key(p));
+    let can_edit = crate::widgets::can(app, "issue.edit", &json!({"key": k})); // UI-37
     ui.horizontal(|ui| {
         // At most half the row for a 255-character project name.
         let w = ui.available_width() * 0.5;
@@ -84,8 +85,8 @@ fn detail_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
         None => {
             let r = ui
                 .add(egui::Label::new(RichText::new(&issue.summary).size(22.0).strong()).sense(egui::Sense::click()))
-                .on_hover_text("Click to edit");
-            if r.clicked() {
+                .on_hover_text(if can_edit { "Click to edit".to_string() } else { crate::widgets::denied("edit this issue") }); // UI-37
+            if r.clicked() && can_edit {
                 app.issue_ui.editing_summary = Some(issue.summary.clone());
             }
         }
@@ -112,9 +113,16 @@ fn detail_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &IssueKey) {
 
 fn main_column(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, now: trackcraft_model::Timestamp) {
     let mut acts: Vec<Action> = Vec::new();
+    let can_edit = crate::widgets::can(app, "issue.edit", &json!({"key": k})); // UI-37
     ui.horizontal(|ui| {
         ui.label(RichText::new("Description").strong());
-        if app.issue_ui.editing_description.is_none() && ui.small_button("Edit").on_hover_text("Edit the description (E)").clicked() {
+        if app.issue_ui.editing_description.is_none()
+            && ui
+                .add_enabled(can_edit, egui::Button::new("Edit").small())
+                .on_hover_text("Edit the description (E)")
+                .on_disabled_hover_text(crate::widgets::denied("edit this issue"))
+                .clicked()
+        {
             app.issue_ui.editing_description = Some(issue.description.to_markdown());
         }
     });
@@ -719,22 +727,31 @@ fn parent_candidates(ws: &Workspace, issue: &Issue) -> Vec<Candidate> {
 #[allow(clippy::too_many_arguments)]
 fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, cat: StatusCategory, transitions: &[String]) {
     let (fill, fg) = t.status(cat);
+    // UI-37: editors, transitions and Delete are disabled without permission.
+    let can_edit = crate::widgets::can(app, "issue.edit", &json!({"key": k}));
+    let can_move = crate::widgets::can(app, "issue.transition", &json!({"key": k, "to": transitions.first().cloned().unwrap_or_default()}));
+    let can_delete = crate::widgets::can(app, "issue.delete", &json!({"key": k}));
     let l_status = ui.label(RichText::new("Status").color(t.muted).size(12.0)).id;
-    let status = ComboBox::from_id_salt("status")
-        .selected_text(RichText::new(issue.status.to_uppercase()).strong().color(fg))
-        .width(180.0)
-        .show_ui(ui, |ui| {
-            if transitions.is_empty() {
-                ui.label("No transitions available");
-            }
-            for to in transitions {
-                if ui.selectable_label(false, to).clicked() {
-                    app.push(Action::Run { id: "issue.transition", params: json!({"key": k, "to": to}), then: Then::Nothing });
-                }
-            }
+    let status = ui
+        .add_enabled_ui(can_move, |ui| {
+            ComboBox::from_id_salt("status")
+                .selected_text(RichText::new(issue.status.to_uppercase()).strong().color(fg))
+                .width(180.0)
+                .show_ui(ui, |ui| {
+                    if transitions.is_empty() {
+                        ui.label("No transitions available");
+                    }
+                    for to in transitions {
+                        if ui.selectable_label(false, to).clicked() {
+                            app.push(Action::Run { id: "issue.transition", params: json!({"key": k, "to": to}), then: Then::Nothing });
+                        }
+                    }
+                })
+                .response
+                .labelled_by(l_status)
+                .on_disabled_hover_text(crate::widgets::denied("change this issue's status"))
         })
-        .response
-        .labelled_by(l_status);
+        .inner;
     // `t` (see `keys.rs`) opens the menu.
     if std::mem::take(&mut app.issue_ui.open_status) {
         egui::Popup::open_id(ui.ctx(), status.id.with("popup"));
@@ -744,6 +761,10 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
     let rev = app.session.revision();
     let suggestions = workspace_labels(&mut app.issue_ui.polish.labels, rev, &app.session.ws);
     card(ui, t, "Details", |ui| {
+        if !can_edit {
+            ui.label(RichText::new(crate::widgets::denied("edit this issue")).color(t.muted).size(12.0)); // UI-37
+            ui.disable();
+        }
         let ws = &app.session.ws;
         let me = app.session.user.clone();
         let mut acts = Vec::new();
@@ -884,7 +905,11 @@ fn fields(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, issue: &Issue, k: &str, c
                 app.issue_ui.confirm_delete = false;
             }
         });
-    } else if ui.small_button("Delete issue…").clicked() {
+    } else if ui
+        .add_enabled(can_delete, egui::Button::new("Delete issue…").small())
+        .on_disabled_hover_text(crate::widgets::denied("delete this issue"))
+        .clicked()
+    {
         app.issue_ui.confirm_delete = true;
     }
 }

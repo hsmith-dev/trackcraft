@@ -6,6 +6,8 @@
 //! - **People**: every user with inline edit (`user.edit`), Add person (`user.add`) and who you
 //!   are acting as (`user.switch`).
 //! - **Shortcuts**: the keymap (`keys::table`), read-only for now.
+//! - **Permissions** (UI-37): every person's workspace role (`access.setWorkspaceRole`), what
+//!   each role means, and where project and space access is set.
 //!
 //! Theme, density and autosave are machine-local preferences kept in egui's persisted memory
 //! (eframe saves it with the window state), not in the workspace.
@@ -24,10 +26,11 @@ pub enum Tab {
     Workspace,
     People,
     Shortcuts,
+    Permissions, // UI-37
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Appearance, Tab::Workspace, Tab::People, Tab::Shortcuts];
+    pub const ALL: [Tab; 5] = [Tab::Appearance, Tab::Workspace, Tab::People, Tab::Shortcuts, Tab::Permissions];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -35,6 +38,7 @@ impl Tab {
             Tab::Workspace => "Workspace",
             Tab::People => "People",
             Tab::Shortcuts => "Shortcuts",
+            Tab::Permissions => "Permissions", // UI-37
         }
     }
 
@@ -45,6 +49,7 @@ impl Tab {
             "workspace" => Some(Tab::Workspace),
             "people" | "users" => Some(Tab::People),
             "shortcuts" | "keys" => Some(Tab::Shortcuts),
+            "permissions" | "roles" => Some(Tab::Permissions), // UI-37
             _ => None,
         }
     }
@@ -100,6 +105,8 @@ pub(crate) struct SettingsUi {
     pub add_id: String,
     pub add_name: String,
     pub add_error: Option<String>,
+    /// The Permissions tab's last refused change, shown under the table (UI-37).
+    pub role_error: Option<String>,
 }
 
 impl TrackApp {
@@ -183,6 +190,7 @@ pub(crate) fn show(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, tab: Tab) {
                 Tab::Workspace => workspace(app, ui, t),
                 Tab::People => people(app, ui, t),
                 Tab::Shortcuts => shortcuts(ui, t),
+                Tab::Permissions => permissions(app, ui, t), // UI-37
             });
         });
     });
@@ -441,4 +449,86 @@ fn shortcuts(ui: &mut Ui, t: &Tokens) {
             }
         });
     }
+}
+
+// UI-37
+/// Workspace roles: (command name, label, what it lets someone do).
+const WORKSPACE_ROLES: [(&str, &str, &str); 3] = [
+    ("admin", "Admin", "Sees and changes everything, restricted pages included, and decides who has which role. There is always at least one."),
+    ("member", "Member", "Works in the projects and spaces open to them, as their project and space roles allow. Can create projects and spaces."),
+    ("viewer", "Viewer", "Reads and comments wherever they have access, but changes nothing else, whatever their other roles say."),
+];
+
+// UI-37
+fn permissions(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
+    section_title(ui, "Workspace roles");
+    egui::Grid::new("settings-role-help").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+        for (_, label, says) in WORKSPACE_ROLES {
+            ui.label(RichText::new(label).strong());
+            ui.add(egui::Label::new(RichText::new(says).color(t.muted).size(12.5)).wrap());
+            ui.end_row();
+        }
+    });
+    ui.add_space(8.0);
+    if !crate::widgets::enforced(app) {
+        note(
+            ui,
+            t,
+            "This workspace is a file on this computer, so these roles aren't enforced here. They take effect when the workspace is served to a team.",
+        );
+        ui.add_space(4.0);
+    }
+    let allowed = crate::widgets::can(app, "access.setWorkspaceRole", &json!({"user": app.session.user, "role": "member"}));
+    let why = crate::widgets::denied("change workspace roles");
+    let me = app.session.user.clone();
+    let ws = &app.session.ws;
+    let users: Vec<(String, String, &'static str)> =
+        ws.users.values().map(|u| (u.id.clone(), u.display_name.clone(), ws.workspace_role(&u.id).map_or("member", |r| r.name()))).collect();
+    let mut change: Option<(String, String, &'static str)> = None;
+    egui::Grid::new("settings-roles").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
+        ui.label(RichText::new("Person").color(t.muted));
+        ui.label(RichText::new("Role").color(t.muted));
+        ui.end_row();
+        for (id, name, role) in &users {
+            let you = if *id == me { " (you)" } else { "" };
+            let l =
+                ui.allocate_ui_with_layout(egui::vec2(240.0, ui.spacing().interact_size.y), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.set_width(240.0);
+                    ui.add(egui::Label::new(format!("{name}{you}")).truncate())
+                });
+            let current = WORKSPACE_ROLES.iter().find(|r| r.0 == *role).map_or(*role, |r| r.1);
+            ui.add_enabled_ui(allowed, |ui| {
+                ComboBox::from_id_salt(("workspace-role", id.as_str()))
+                    .selected_text(current)
+                    .width(130.0)
+                    .show_ui(ui, |ui| {
+                        for (r, label, _) in WORKSPACE_ROLES {
+                            if ui.selectable_label(r == *role, label).clicked() && r != *role {
+                                change = Some((id.clone(), name.clone(), r));
+                            }
+                        }
+                    })
+                    .response
+                    .labelled_by(l.inner.id)
+                    .on_disabled_hover_text(&why);
+            });
+            ui.end_row();
+        }
+    });
+    if let Some((id, name, role)) = change {
+        match run_now(app, "access.setWorkspaceRole", &json!({"user": id, "role": role})) {
+            Ok(_) => {
+                app.settings.role_error = None;
+                app.notify_done(format!("{name} is now a workspace {role}"), true);
+            }
+            Err(e) => app.settings.role_error = Some(e),
+        }
+    }
+    error(ui, t, &app.settings.role_error);
+    if !allowed {
+        note(ui, t, &format!("{why}: only workspace admins can."));
+    }
+    ui.add_space(16.0);
+    section_title(ui, "Projects and spaces");
+    note(ui, t, "Each project and space has its own access level and roles: open its settings from the gear on its row in the sidebar.");
 }

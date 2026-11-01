@@ -1,0 +1,74 @@
+{"method": "ui.theme", "params": {"dark": false}}
+{"method": "engine.execute", "params": {"command": "access.setProjectRole", "params": {"project": "LUME", "user": "sam", "role": "administrator"}}}
+{"method": "engine.execute", "params": {"command": "access.setProjectRole", "params": {"project": "LUME", "user": "jo", "role": "viewer"}}}
+{"method": "engine.execute", "params": {"command": "access.setProjectAccess", "params": {"project": "LUME", "access": "limited"}}}
+{"method": "engine.execute", "params": {"command": "access.setSpaceRole", "params": {"space": "ENG", "user": "jo", "role": "viewer"}}}
+{"method": "engine.execute", "params": {"command": "page.restrict", "params": {"id": 24, "view": ["riley", "sam"]}}}
+{"method": "ui.navigate", "params": {"view": "settings", "tab": "permissions"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-settings-light.png"}
+{"method": "ui.navigate", "params": {"view": "projectSettings", "project": "LUME"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-project-light.png"}
+{"method": "ui.navigate", "params": {"view": "spaceSettings", "space": "ENG"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-space-light.png"}
+{"method": "ui.navigate", "params": {"view": "page", "id": 25}}
+{"method": "ui.pageDialog", "params": {"kind": "restrict", "id": 25}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-restrict-inherited-light.png"}
+{"method": "ui.key", "params": {"key": "Escape"}}
+{"steps": 2}
+{"method": "ui.navigate", "params": {"view": "page", "id": 24}}
+{"method": "ui.pageDialog", "params": {"kind": "restrict", "id": 24}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-restrict-light.png"}
+{"method": "ui.key", "params": {"key": "Escape"}}
+{"steps": 2}
+{"shot": "/tmp/tc-shots/permissions-page-locked-light.png"}
+{"method": "ui.theme", "params": {"dark": true}}
+{"method": "ui.navigate", "params": {"view": "settings", "tab": "permissions"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-settings-dark.png"}
+{"method": "ui.navigate", "params": {"view": "projectSettings", "project": "LUME"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-project-dark.png"}
+{"method": "ui.navigate", "params": {"view": "spaceSettings", "space": "ENG"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-space-dark.png"}
+{"method": "ui.navigate", "params": {"view": "page", "id": 25}}
+{"method": "ui.pageDialog", "params": {"kind": "restrict", "id": 25}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-restrict-inherited-dark.png"}
+{"method": "ui.key", "params": {"key": "Escape"}}
+{"steps": 2}
+{"method": "ui.navigate", "params": {"view": "page", "id": 24}}
+{"method": "ui.pageDialog", "params": {"kind": "restrict", "id": 24}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-restrict-dark.png"}
+{"method": "ui.key", "params": {"key": "Escape"}}
+{"steps": 2}
+{"shot": "/tmp/tc-shots/permissions-page-locked-dark.png"}
+{"method": "engine.execute", "params": {"command": "access.setWorkspaceRole", "params": {"user": "jo", "role": "viewer"}}}
+{"method": "engine.execute", "params": {"command": "user.switch", "params": {"id": "jo"}}}
+{"method": "ui.connection", "params": {"remote": true}}
+{"method": "ui.theme", "params": {"dark": false}}
+{"method": "ui.navigate", "params": {"view": "issue", "key": "LUME-2"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-issue-light.png"}
+{"method": "ui.navigate", "params": {"view": "page", "id": 27}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-page-light.png"}
+{"method": "ui.navigate", "params": {"view": "settings", "tab": "permissions"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-settings-light.png"}
+{"method": "ui.theme", "params": {"dark": true}}
+{"method": "ui.navigate", "params": {"view": "issue", "key": "LUME-2"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-issue-dark.png"}
+{"method": "ui.navigate", "params": {"view": "page", "id": 27}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-page-dark.png"}
+{"method": "ui.navigate", "params": {"view": "settings", "tab": "permissions"}}
+{"steps": 3}
+{"shot": "/tmp/tc-shots/permissions-viewer-settings-dark.png"}

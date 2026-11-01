@@ -202,6 +202,8 @@ struct RowHit {
     open: bool,
     star: bool,
     chevron: bool,
+    /// The settings gear (UI-37).
+    gear: bool,
 }
 
 /// A sidebar row: optional chevron, a selectable label and, on hover or when starred, a star at
@@ -217,6 +219,10 @@ struct Row<'a> {
     star: Option<(bool, &'a str)>,
     /// Draw a "+" button (create a page in a space) on hover or when selected.
     plus: bool,
+    /// `Some(name)`: a settings gear on hover, for "Settings for {name}" (UI-37).
+    gear: Option<&'a str>,
+    /// A lock badge after the label (a restricted page, UI-37).
+    lock: bool,
 }
 
 impl Row<'_> {
@@ -234,7 +240,10 @@ impl Row<'_> {
                 });
                 hit.chevron = c.clicked();
             }
-            let tail = 20.0 + if self.plus { 24.0 } else { 0.0 };
+            let tail = 20.0
+                + if self.plus { 24.0 } else { 0.0 }
+                + if self.gear.is_some() && (hovered || self.selected) { 24.0 } else { 0.0 }
+                + if self.lock { 16.0 } else { 0.0 };
             let w = (row.right() - ui.cursor().left() - tail).max(40.0);
             let text = match (self.selected, self.strong) {
                 (true, _) => RichText::new(self.label).color(t.accent).strong(),
@@ -247,6 +256,30 @@ impl Row<'_> {
             });
             hit.open = r.inner.clicked();
             let y = r.inner.rect.center().y;
+            // UI-37
+            if self.lock {
+                let rect = egui::Rect::from_center_size(egui::pos2(r.inner.rect.right() + 9.0, y), egui::vec2(11.0, 11.0));
+                icons::paint_lock(ui.painter(), t.muted, rect);
+                ui.interact(rect, ui.scope_id().with(("row-lock", self.label)), egui::Sense::hover()).on_hover_text("Restricted page");
+            }
+            if let Some(name) = self.gear
+                && (hovered || self.selected)
+            {
+                let x = row.right() - 32.0 - if self.plus { 24.0 } else { 0.0 };
+                let rect = egui::Rect::from_center_size(egui::pos2(x, y), egui::vec2(20.0, 18.0));
+                let g = ui.interact(rect, ui.scope_id().with(("row-gear", name)), egui::Sense::click());
+                if g.hovered() {
+                    ui.painter().rect_filled(rect, 4.0, t.accent_soft);
+                }
+                icons::paint_gear(
+                    ui.painter(),
+                    if g.hovered() { t.text } else { t.muted },
+                    egui::Rect::from_center_size(rect.center(), egui::vec2(12.0, 12.0)),
+                );
+                let label = format!("Settings for {name}");
+                g.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+                hit.gear = g.on_hover_text(&label).clicked();
+            }
             if self.plus && (hovered || self.selected) {
                 let rect = egui::Rect::from_center_size(egui::pos2(row.right() - 32.0, y), egui::vec2(20.0, 18.0));
                 plus = Some(ui.put(rect, egui::Button::new("+").small()));
@@ -377,7 +410,9 @@ fn starred(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
         return items.len();
     }
     for (star, label, action, sel) in &items {
-        let (hit, _) = Row { indent: 0.0, selected: *sel, strong: false, label, chevron: None, star: Some((true, label)), plus: false }.show(ui, t);
+        let (hit, _) =
+            Row { indent: 0.0, selected: *sel, strong: false, label, chevron: None, star: Some((true, label)), plus: false, gear: None, lock: false }
+                .show(ui, t);
         if hit.star {
             app.side.set_star(star.clone(), false);
         } else if hit.open {
@@ -431,7 +466,9 @@ fn filters(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
         let star = Star::Filter((*label).to_string());
         let on = app.side.starred(&star);
         let sel = app.view == View::Issues && app.jql == *jql;
-        let (hit, _) = Row { indent: 0.0, selected: sel, strong: false, label, chevron: None, star: Some((on, label)), plus: false }.show(ui, t);
+        let (hit, _) =
+            Row { indent: 0.0, selected: sel, strong: false, label, chevron: None, star: Some((on, label)), plus: false, gear: None, lock: false }
+                .show(ui, t);
         if hit.star {
             app.side.toggle(star);
         } else if hit.open {
@@ -470,12 +507,14 @@ fn more_link(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, hidden: usize, what: &
 }
 
 fn projects(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
+    let enforced = crate::widgets::enforced(app); // UI-37
     let all: Vec<(ProjectKey, String)> = app
         .session
         .ws
         .projects
         .values()
         .filter(|p| directory::hit_all(q, &[&p.name, p.key.as_str()]))
+        .filter(|p| !enforced || app.session.ws.can_browse_project(&app.session.user, &p.key)) // UI-37
         .map(|p| (p.key.clone(), p.name.clone()))
         .collect();
     let mut all = all;
@@ -502,9 +541,21 @@ fn projects(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
         let star = Star::Project(key.clone());
         let on = app.side.starred(&star);
         let label = format!("{name}  \u{b7}  {key}");
-        let (hit, _) =
-            Row { indent: 0.0, selected: false, strong: true, label: &label, chevron: Some(open), star: Some((on, &name)), plus: false }.show(ui, t);
-        if hit.star {
+        let (hit, _) = Row {
+            indent: 0.0,
+            selected: false,
+            strong: true,
+            label: &label,
+            chevron: Some(open),
+            star: Some((on, &name)),
+            plus: false,
+            gear: Some(&name),
+            lock: false,
+        }
+        .show(ui, t);
+        if hit.gear {
+            app.push(Action::Nav(View::ProjectSettings(pk.clone(), crate::project_settings::ProjectTab::Access))); // UI-37
+        } else if hit.star {
             app.side.toggle(star);
         } else if hit.chevron {
             if open {
@@ -547,7 +598,8 @@ fn spaces(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
     let ws = &app.session.ws;
     // A space matches by name or key, or when one of its pages does (those pages are listed).
     let mut all: Vec<SpaceItem> = Vec::new();
-    for s in ws.spaces.values() {
+    let enforced = crate::widgets::enforced(app); // UI-37
+    for s in ws.spaces.values().filter(|s| !enforced || ws.space_role(&app.session.user, &s.key).is_some()) {
         let by_name = directory::hit_all(q, &[&s.name, s.key.as_str()]);
         let pages: Vec<(Id, String)> = if q.is_empty() {
             vec![]
@@ -592,6 +644,8 @@ fn spaces(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
             chevron: Some(open),
             star: Some((on, &name)),
             plus: true,
+            gear: Some(&name), // UI-37
+            lock: false,
         };
         let shown = ui.scope(|ui| row.show(ui, t));
         let (hit, plus) = shown.inner;
@@ -608,7 +662,11 @@ fn spaces(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, q: &str) -> usize {
         if plus.is_some_and(|p| p.on_hover_text("Create a page in this space").clicked()) {
             app.push(Action::OpenNewPage { space: key.clone(), parent: None });
         }
-        if hit.star {
+        if hit.gear {
+            if let Ok(k) = ProjectKey::parse(&key) {
+                app.push(Action::Nav(View::SpaceSettings(k))); // UI-37
+            }
+        } else if hit.star {
             app.side.toggle(star);
         } else if hit.chevron {
             if open {
@@ -648,9 +706,19 @@ fn tree(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, parent: Id, depth: usize) {
         let star = Star::Page(id.0);
         let on = app.side.starred(&star);
         let sel = matches!(app.view, View::Page(p) | View::PageHistory(p) if p == id);
+        let lock = crate::wiki::restricted(&app.session.ws, id); // UI-37
         let indent = 6.0 + depth as f32 * 12.0 + if has_kids { 0.0 } else { 14.0 + ui.spacing().item_spacing.x };
-        let row =
-            Row { indent, selected: sel, strong: false, label: &title, chevron: has_kids.then_some(open), star: Some((on, &title)), plus: false };
+        let row = Row {
+            indent,
+            selected: sel,
+            strong: false,
+            label: &title,
+            chevron: has_kids.then_some(open),
+            star: Some((on, &title)),
+            plus: false,
+            gear: None,
+            lock,
+        };
         // UI-30: rows drag onto another row (child) or its top/bottom edge (before/after).
         let dragged = ui.dnd_drag_source(egui::Id::unique(("page-tree-drag", id.0)), crate::wiki::PageDrag(id), |ui| row.show(ui, t));
         let (hit, _) = dragged.inner;
