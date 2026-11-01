@@ -35,6 +35,9 @@ pub fn routes() -> Router<ApiState> {
         .route("/rest/api/3/issue/{key}/assignee", put(assign))
         .route("/rest/api/3/issue/{key}/changelog", get(changelog))
         .route("/rest/api/3/issueLink", post(issue_link))
+        .route("/rest/api/3/project/{key}/components", get(crate::fields::project_components)) // M2.4
+        .route("/rest/api/3/project/{key}/versions", get(crate::fields::project_versions)) // M2.4
+        .route("/rest/api/3/field", get(crate::fields::field_list)) // M2.4
 }
 
 // ── shapes ────────────────────────────────────────────────────────────────────────────────────
@@ -254,6 +257,9 @@ pub fn issue_json(ws: &Workspace, base: &str, i: &Issue, f: &Fields) -> Value {
     put("closedSprints", &|| {
         Value::Array(i.past_sprints.iter().filter_map(|id| ws.sprints.get(id)).map(|s| crate::agile::sprint_json(base, s)).collect())
     });
+    for (k, val) in crate::fields::issue_values(ws, base, i) {
+        put(&k, &|| val.clone()); // M2.4
+    }
     let mut v = json!({"id": id, "key": i.key.to_string(), "self": format!("{base}/rest/api/3/issue/{id}")});
     if !fields.is_empty()
         && let Some(o) = v.as_object_mut()
@@ -305,6 +311,9 @@ fn field_err(name: &str, what: &str) -> ApiError {
 /// Maps Jira `fields` onto `issue.create` / `issue.edit` params. `project` is resolved by the caller.
 fn issue_params(ws: &Workspace, project: Option<&Project>, fields: &Map<String, Value>, out: &mut Map<String, Value>) -> Result<(), ApiError> {
     for (k, v) in fields {
+        if crate::fields::map_input(project, ws, k, v, out)? {
+            continue; // M2.4: components, versions, custom fields
+        }
         match k.as_str() {
             "summary" => {
                 out.insert("summary".into(), json!(v.as_str().ok_or_else(|| field_err(k, "must be a string"))?));

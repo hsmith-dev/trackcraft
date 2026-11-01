@@ -62,6 +62,8 @@ pub(crate) fn context(app: &TrackApp) -> String {
         View::SpaceSettings(k) => format!("{k} space settings"),                   // UI-37
         // UI-24
         View::Reports(p) => format!("{p} reports"),
+        View::ProjectFields(p) => format!("{p} fields"), // M2.4
+        View::Releases(p) => format!("{p} releases"),    // M2.4
     };
     middle_truncate(&s, 80)
 }

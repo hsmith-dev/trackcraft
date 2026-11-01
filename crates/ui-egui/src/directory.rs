@@ -208,6 +208,8 @@ pub(crate) fn view_label(app: &TrackApp, v: &View) -> Option<String> {
         View::ProjectSettings(p, _) => format!("{} settings", ws.projects.get(p)?.name), // UI-37
         View::SpaceSettings(k) => format!("{} settings", ws.spaces.get(k)?.name),        // UI-37
         View::Reports(p) => format!("{} reports", ws.projects.get(p)?.name),             // UI-24
+        View::ProjectFields(p) => format!("{} fields", ws.projects.get(p)?.name),        // M2.4
+        View::Releases(p) => format!("{} releases", ws.projects.get(p)?.name),           // M2.4
     })
 }
 

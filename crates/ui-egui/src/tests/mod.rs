@@ -4,6 +4,7 @@
 mod backlog; // UI-11
 mod board;
 mod connection;
+mod fields; // M2.4
 mod fixes;
 mod guard;
 mod hostile; // UI-6

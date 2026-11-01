@@ -105,6 +105,11 @@ fn hostile_params_never_panic() {
         json!({"id": 1, "startDate": null, "endDate": null, "name": "\u{0}"}),
         json!({"id": "1", "startDate": null, "endDate": "2026-11-01", "name": "", "moveOpenTo": "backlog"}),
         json!({"id": 1, "startDate": "2026-11-03", "endDate": "2026-11-17", "name": "x".repeat(1_000)}),
+        // M2.4 field/component/version params and issue values.
+        json!({"project": "LUME", "name": "f", "type": "select", "options": vec!["o"; 10_000], "required": 1}),
+        json!({"id": u64::MAX, "options": "a", "lead": [], "releaseDate": "2026-02-30", "date": 5, "moveUnresolvedTo": {}}),
+        json!({"key": "LUME-1", "custom": {"nope": 1}, "components": vec!["x"; 5_000], "fixVersions": [{}], "affectsVersions": 3}),
+        json!({"project": "LUME", "summary": "s", "custom": [], "components": "Sync", "versions": [null]}),
     ];
     for c in commands() {
         if c.id == "file.open" || c.id == "file.save" {

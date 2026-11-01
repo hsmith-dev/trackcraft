@@ -62,6 +62,17 @@ fn entries(app: &TrackApp, q: &str) -> Vec<Entry> {
             out.push(Entry::Go(View::Board(p.key.clone()), label));
         }
     }
+    // M2.4: each project's fields editor and releases.
+    for p in app.session.ws.projects.values().take(if q.is_empty() { 0 } else { usize::MAX }) {
+        for (label, v) in [
+            (format!("Fields: {}", p.name), View::ProjectSettings(p.key.clone(), crate::project_settings::ProjectTab::Fields)),
+            (format!("Releases: {}", p.name), View::Releases(p.key.clone())),
+        ] {
+            if hit(&label) {
+                out.push(Entry::Go(v, label));
+            }
+        }
+    }
     for (label, v) in [("All projects", View::Projects), ("All spaces", View::Spaces), ("Settings", View::Settings(crate::settings::Tab::Appearance))]
     {
         if hit(label) {
@@ -90,6 +101,7 @@ pub(crate) fn context_params(app: &TrackApp) -> Value {
             json!({"id": id.0, "space": space})
         }
         View::Board(p) | View::Backlog(p) | View::SprintBoard(p, _) => json!({"project": p.to_string(), "key": p.to_string()}),
+        View::ProjectFields(p) | View::Releases(p) => json!({"project": p.to_string()}), // M2.4
         _ => json!({}),
     }
 }
@@ -151,6 +163,14 @@ pub(crate) fn ui_route(app: &mut TrackApp, id: &str) -> bool {
             app.issue_ui.focus_description = true;
         }
         ("page.edit", View::Page(pid)) => app.push(Action::EditPage(pid)),
+        // M2.4: the definitions' forms live in the fields editor, releases in their view.
+        (c, _)
+            if project.is_some()
+                && (c.starts_with("field.") || c.starts_with("component.") || matches!(c, "version.create" | "version.edit" | "version.delete")) =>
+        {
+            app.push(Action::Nav(project.map_or(View::Projects, View::ProjectFields)))
+        }
+        ("version.list" | "version.release", _) if project.is_some() => app.push(Action::Nav(project.map_or(View::Projects, View::Releases))),
         ("page.labels", View::Page(pid)) => {
             if let Some(p) = app.session.ws.pages.get(&pid) {
                 app.page_labels = Some((pid, p.labels.join(" ")));

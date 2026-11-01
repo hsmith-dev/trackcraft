@@ -25,14 +25,17 @@ use crate::{Action, ComboBox, TrackApp, View};
 pub enum ProjectTab {
     #[default]
     Access,
+    /// Custom fields, components and versions (M2.4's editor, mounted here when merging).
+    Fields,
 }
 
 impl ProjectTab {
-    pub(crate) const ALL: &'static [ProjectTab] = &[ProjectTab::Access];
+    pub(crate) const ALL: &'static [ProjectTab] = &[ProjectTab::Access, ProjectTab::Fields];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             ProjectTab::Access => "Access",
+            ProjectTab::Fields => "Fields",
         }
     }
 
@@ -40,6 +43,7 @@ impl ProjectTab {
     pub(crate) fn parse(s: &str) -> Option<ProjectTab> {
         match s.trim().to_ascii_lowercase().as_str() {
             "" | "access" | "permissions" => Some(ProjectTab::Access),
+            "fields" | "components" | "versions" => Some(ProjectTab::Fields),
             _ => None,
         }
     }
@@ -132,6 +136,11 @@ pub(crate) fn project(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &Project
         // Switching tabs is not a navigation: it leaves no Back step.
         app.view = View::ProjectSettings(key.clone(), tb);
     }
+    // The fields editor scrolls on its own (no nested scroll areas).
+    if tab == ProjectTab::Fields {
+        crate::fields_admin::show(app, ui, t, key);
+        return;
+    }
     egui::ScrollArea::vertical().id_salt("project-settings").auto_shrink([false, false]).show(ui, |ui| {
         ui.set_max_width(760.0);
         match tab {
@@ -140,6 +149,7 @@ pub(crate) fn project(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &Project
                 let (level, roles) = flatten(&g, ProjectRole::name);
                 access(app, ui, t, &PROJECT, key, level, roles);
             }
+            ProjectTab::Fields => {}
         }
     });
 }

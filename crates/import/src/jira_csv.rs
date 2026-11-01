@@ -44,6 +44,12 @@ struct Columns {
     comments: Vec<usize>,
     /// (column, link type name, outward)
     links: Vec<(usize, String, bool)>,
+    // M2.4
+    components: Vec<usize>,
+    fix_versions: Vec<usize>,
+    affects_versions: Vec<usize>,
+    /// (column, field name as written)
+    custom: Vec<(usize, String)>,
 }
 
 fn columns(header: &[String]) -> Columns {
@@ -79,6 +85,17 @@ fn columns(header: &[String]) -> Columns {
             "custom field (epic link)" => one(&mut c.epic_link),
             "custom field (story points)" | "custom field (story point estimate)" | "story points" | "story point estimate" => c.points.push(i),
             "comment" | "comments" => c.comments.push(i),
+            // M2.4: components, versions, other custom fields.
+            "component/s" | "components" | "component" => c.components.push(i),
+            "fix version/s" | "fix versions" | "fix version" => c.fix_versions.push(i),
+            "affects version/s" | "affects versions" | "affects version" => c.affects_versions.push(i),
+            _ if l.starts_with("custom field (") && l.ends_with(')') => {
+                let t = h.trim();
+                let name = t.get("custom field (".len()..t.len().saturating_sub(1)).unwrap_or_default().trim();
+                if !name.is_empty() {
+                    c.custom.push((i, name.to_string()));
+                }
+            }
             _ => {
                 for (prefix, outward) in [("inward issue link (", false), ("outward issue link (", true)] {
                     if let Some(kind) = l.strip_prefix(prefix).and_then(|r| r.strip_suffix(')')) {
@@ -175,6 +192,15 @@ fn read(text: &str, report: &mut ImportReport) -> Result<Vec<RawIssue>> {
             parent: cells(&c.parent).into_iter().next().or_else(|| clean(cell(c.epic_link))),
             ..RawIssue::default()
         };
+        // M2.4
+        r.components = cells(&c.components);
+        r.fix_versions = cells(&c.fix_versions);
+        r.affects_versions = cells(&c.affects_versions);
+        for (i, name) in &c.custom {
+            if let Some(v) = row.get(*i).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                r.custom.push((name.clone(), clip_bytes(v, MAX_FIELD_BYTES).to_string()));
+            }
+        }
         for p in cells(&c.points) {
             match p.replace(',', ".").parse::<f64>() {
                 Ok(v) => r.story_points = Some(v),

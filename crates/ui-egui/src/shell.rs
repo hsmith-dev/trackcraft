@@ -153,6 +153,7 @@ pub(crate) fn current_project(app: &TrackApp) -> Option<String> {
         View::Board(p) | View::Backlog(p) | View::SprintBoard(p, _) => Some(p.to_string()),
         View::Reports(p) => Some(p.to_string()), // UI-24
         View::Issue(k) => Some(k.project.to_string()),
+        View::ProjectFields(p) | View::Releases(p) => Some(p.to_string()), // M2.4
         _ => None,
     }
 }

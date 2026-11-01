@@ -28,3 +28,5 @@ mod snippet; // UI-fixes
 pub(crate) use snippet::{quote_excerpt, snippet, word_prefix}; // UI-fixes
 mod can; // UI-37
 pub(crate) use can::{CanCache, can, denied, enforced}; // UI-37
+mod chip_picker; // M2.4
+pub(crate) use chip_picker::{chip_picker, commit_field}; // M2.4

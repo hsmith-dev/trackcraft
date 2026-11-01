@@ -8,6 +8,7 @@
 mod backlog; // UI-11
 mod charts; // UI-24
 mod directory; // UI-8
+mod fields_admin; // M2.4
 #[doc(hidden)]
 pub mod fixtures; // UI-6
 pub mod fonts; // fonts
@@ -22,6 +23,7 @@ mod order;
 mod palette;
 mod peek;
 mod project_settings;
+mod releases;
 mod reports;
 mod route;
 mod settings; // UI-7
@@ -140,6 +142,8 @@ pub(crate) struct CreateForm {
     pub label_draft: String,
     pub sprint: Option<Id>,
     pub create_another: bool,
+    /// Components and required custom fields (M2.4).
+    pub m24: issues::CreateExtra, // M2.4
 }
 
 impl CreateForm {
@@ -249,6 +253,8 @@ pub struct TrackApp {
     pub(crate) can: widgets::CanCache, // UI-37
     /// The reports view's tab, choices and query cache (UI-24).
     pub(crate) reports: reports::ReportsUi, // UI-24
+    /// The fields editor and releases view (M2.4).
+    pub(crate) m24: fields_admin::FieldsUi, // M2.4
 }
 
 impl TrackApp {
@@ -307,6 +313,7 @@ impl TrackApp {
             access: project_settings::AccessUi::default(), // UI-37
             can: widgets::CanCache::default(),             // UI-37
             reports: reports::ReportsUi::default(),        // UI-24
+            m24: fields_admin::FieldsUi::default(),        // M2.4
         }
     }
 
@@ -529,6 +536,8 @@ impl TrackApp {
                 View::ProjectSettings(k, tab) => project_settings::project(self, ui, &t, &k, tab), // UI-37
                 View::SpaceSettings(k) => project_settings::space(self, ui, &t, &k),    // UI-37
                 View::Reports(p) => reports::view(self, ui, &t, &p),                    // UI-24
+                View::ProjectFields(p) => fields_admin::show(self, ui, &t, &p),         // M2.4
+                View::Releases(p) => releases::show(self, ui, &t, &p),                  // M2.4
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -691,6 +700,7 @@ impl TrackApp {
             View::ProjectSettings(k, _) => !self.session.ws.projects.contains_key(k), // UI-37
             View::SpaceSettings(k) => !self.session.ws.spaces.contains_key(k), // UI-37
             View::Reports(p) => !self.session.ws.projects.contains_key(p), // UI-24
+            View::ProjectFields(p) | View::Releases(p) => !self.session.ws.projects.contains_key(p), // M2.4
             _ => false,
         };
         if gone {

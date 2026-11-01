@@ -286,6 +286,7 @@ pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
         View::Inbox => None,                                        // M4.5
         View::ProjectSettings(..) | View::SpaceSettings(_) => None, // UI-37
         View::Reports(_) => None,                                   // UI-24
+        View::ProjectFields(_) | View::Releases(_) => None,         // M2.4
     }
 }
 

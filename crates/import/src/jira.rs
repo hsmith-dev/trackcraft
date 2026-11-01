@@ -61,6 +61,12 @@ pub struct RawIssue {
     pub story_points: Option<f64>,
     pub comments: Vec<RawComment>,
     pub links: Vec<RawLink>,
+    /// M2.4: component, fix version and affects version names.
+    pub components: Vec<String>,
+    pub fix_versions: Vec<String>,
+    pub affects_versions: Vec<String>,
+    /// M2.4: other custom fields, `(field name, value)`; a repeated column gives several values.
+    pub custom: Vec<(String, String)>,
 }
 
 /// Parses the date formats Jira exports use: ISO 8601 / RFC 3339 (REST: `2024-03-21T15:07:00.000+0000`),
@@ -193,6 +199,7 @@ pub fn apply(ws: &mut Workspace, raws: Vec<RawIssue>, actor: Actor<'_>, report: 
     let (mut items, by_id) = prepare(ws, raws, report);
     ensure_projects(ws, &items, report);
     ensure_kinds(ws, &mut items, report);
+    crate::fields::ensure(ws, items.iter().map(|i| (&i.key.project, &i.raw)), report); // M2.4
     let order = creation_order(ws, &mut items, &by_id, report);
     let mut created: Vec<usize> = Vec::new();
     for n in order {
@@ -375,6 +382,7 @@ fn create(ws: &mut Workspace, it: &Prepared, people: &mut People, actor: Actor<'
     }
     report.issues += 1;
     let key = it.key.to_string();
+    crate::fields::set(ws, &key, r, report); // M2.4
     if r.comments.len() > MAX_PER_ISSUE {
         report.warn(format!("{}: only the first {MAX_PER_ISSUE} comments of {key} were kept", r.at));
     }

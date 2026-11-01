@@ -36,6 +36,10 @@ pub enum View {
     SpaceSettings(ProjectKey),
     /// A project's reports: burndown, velocity, cumulative flow, created vs resolved (UI-24).
     Reports(ProjectKey),
+    /// A project's custom fields, components and versions (M2.4; becomes a project settings tab).
+    ProjectFields(ProjectKey),
+    /// A project's versions with progress and Release (M2.4).
+    Releases(ProjectKey),
 }
 
 /// The view a `ui.navigate` request names:
@@ -83,6 +87,13 @@ pub(crate) fn parse(ws: &Workspace, p: &Value) -> Result<View, String> {
         "spaceSettings" => View::SpaceSettings(ws.space(&s("space")).map_err(|e| e.to_string())?.key.clone()),
         // UI-24
         "reports" => View::Reports(ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?),
+        // M2.4: `{"view": "fields"|"releases", "project": "LUME"}`.
+        "fields" | "releases" => {
+            let k = ProjectKey::parse(&s("project").to_ascii_uppercase()).map_err(|e| e.to_string())?;
+            ws.project(k.as_str()).map_err(|e| e.to_string())?;
+            // Fields live in project settings (the standalone view stays for old scripts).
+            if s("view") == "fields" { View::ProjectSettings(k, crate::project_settings::ProjectTab::Fields) } else { View::Releases(k) }
+        }
         other => return Err(format!("unknown view {other}")),
     };
     // UI-12: a board with `"sprint"` shows only that sprint.

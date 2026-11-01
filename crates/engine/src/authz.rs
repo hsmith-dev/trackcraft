@@ -91,7 +91,29 @@ pub const RULED: &[&str] = &[
     "issue.unwatch",
     "page.watch",
     "page.unwatch",
+    // M2.4 custom fields, components, versions: project administrators.
+    "field.create",
+    "field.edit",
+    "field.delete",
+    "component.create",
+    "component.edit",
+    "component.delete",
+    "version.create",
+    "version.edit",
+    "version.delete",
+    "version.release",
 ];
+
+/// M2.4: the project owning the field, component or version that `command`'s `id` names.
+fn definition_project(ws: &Workspace, command: &str, p: &Value) -> Option<ProjectKey> {
+    let id = params::opt_id(p, "id").ok().flatten()?;
+    match command.split('.').next() {
+        Some("field") => ws.find_field(id).map(|(k, _)| k.clone()),
+        Some("component") => ws.find_component(id).map(|(k, _)| k.clone()),
+        Some("version") => ws.find_version(id).map(|(k, _)| k.clone()),
+        _ => None,
+    }
+}
 
 /// What the actor needs on an issue.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -270,6 +292,15 @@ impl Check<'_> {
         Ok(())
     }
 
+    /// M2.4 `version.release`: the version unresolved issues move to must be browsable.
+    fn release_target(&self, p: &Value) -> Result<(), Denied> {
+        let Ok(Some(to)) = params::opt_id(p, "moveUnresolvedTo") else { return Ok(()) };
+        match self.ws.find_version(to) {
+            Some((k, _)) if !self.ws.can_browse_project(self.actor, k) => Err(Denied::Hidden(format!("no version with id {to}"))),
+            _ => Ok(()),
+        }
+    }
+
     /// A page restriction list must keep the actor on it, unless they administer the space.
     fn keeps_self(&self, p: &Value, space_admin: bool) -> Result<(), Denied> {
         if space_admin {
@@ -439,6 +470,21 @@ pub fn authorize(ws: &Workspace, actor: &str, command: &str, p: &Value) -> Resul
             }
         }
         "access.setProjectRole" | "access.setProjectAccess" => c.project_param(p, "project", ProjectRole::Administrator),
+        // M2.4: definitions belong to project administrators; a hidden project's ones read as missing.
+        "field.create" | "component.create" | "version.create" => c.project_param(p, "project", ProjectRole::Administrator),
+        "field.edit" | "field.delete" | "component.edit" | "component.delete" | "version.edit" | "version.delete" | "version.release" => {
+            match definition_project(ws, spec.id, p) {
+                None => Ok(()),
+                Some(k) if !ws.can_browse_project(actor, &k) => {
+                    let what = spec.id.split('.').next().unwrap_or("item");
+                    Err(Denied::Hidden(format!("no {what} with id {}", params::opt_id(p, "id").ok().flatten().unwrap_or_default())))
+                }
+                Some(k) => {
+                    c.project(k.as_str(), ProjectRole::Administrator)?;
+                    if spec.id == "version.release" { c.release_target(p) } else { Ok(()) }
+                }
+            }
+        }
         "access.setSpaceRole" | "access.setSpaceAccess" => c.space_param(p, "space", SpaceRole::Admin),
         other => c.admin(other),
     }
@@ -564,6 +610,14 @@ pub fn scope(ws: &Workspace, command: &str, p: &Value) -> Scope {
         },
         "template.create" => {
             need(str_param("space").and_then(project_of), &mut s.spaces, false);
+        }
+        // M2.4: definitions touch one project (by "project", or the one owning "id").
+        "field.create" | "component.create" | "version.create" => ok &= need(str_param("project").and_then(project_of), &mut s.projects, true),
+        c if c.starts_with("field.") || c.starts_with("component.") || c.starts_with("version.") => {
+            ok &= need(definition_project(ws, c, p), &mut s.projects, true);
+            if let Some(to) = id_param("moveUnresolvedTo") {
+                ok &= need(ws.find_version(to).map(|(k, _)| k.clone()), &mut s.projects, true);
+            }
         }
         "template.delete" => {
             if let Some(Some(k)) = id_param("id").and_then(|id| ws.templates.get(&id)).map(|t| t.space.clone()) {
