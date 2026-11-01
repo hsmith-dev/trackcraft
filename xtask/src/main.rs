@@ -44,7 +44,8 @@ const UI_ONLY: &[&str] = &["egui", "eframe", "winit", "rfd", "wgpu"];
 const SERVER_ONLY: &[&str] = &["tokio", "axum", "hyper", "tower"];
 
 /// Crates checked for wasm32 (everything below the native apps).
-const WASM_CRATES: &[&str] = &["trackcraft-core", "trackcraft-markup", "trackcraft-jql", "trackcraft-model", "trackcraft-store", "trackcraft-engine"];
+const WASM_CRATES: &[&str] =
+    &["trackcraft-core", "trackcraft-markup", "trackcraft-jql", "trackcraft-model", "trackcraft-store", "trackcraft-engine", "trackcraft-ui-egui"];
 
 const ASSET_EXT: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "ico", "icns", "svg", "pdf", "ttf", "otf", "woff", "woff2", "mp4", "wav", "mp3",

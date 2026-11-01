@@ -70,11 +70,11 @@ pub fn strings(p: &Value, k: &str) -> Result<Option<Vec<String>>, String> {
     }
 }
 
-/// Rich text: an ADF document object, or a plain string.
+/// Rich text: an ADF document object, or a Markdown string (what the editors and CLI send).
 pub fn opt_doc(p: &Value, k: &str) -> Result<Option<Doc>, String> {
     match p.get(k) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) => Ok(Some(Doc::plain(s))),
+        Some(Value::String(s)) => Ok(Some(Doc::from_markdown(s))),
         Some(v @ Value::Object(_)) => Doc::from_adf(v).map(Some).map_err(|e| format!("\"{k}\": {e}")),
         Some(_) => Err(format!("\"{k}\" must be text or an ADF document")),
     }

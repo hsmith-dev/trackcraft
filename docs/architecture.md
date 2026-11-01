@@ -23,11 +23,26 @@ gets there in two steps that share all the code below the UI:
    commands and replay them on reconnect. Conflicts are resolved per field (issues) and by
    version check plus three-way merge (pages, `StaleVersion`).
 
-**Shared with Chatcraft:** Chatcraft (Slack/Teams) needs the same server pieces: accounts, auth
-(local + OIDC), permissions, a command/op log, real-time fan-out over WebSocket, presence,
-notifications. These should be one shared library (proposed: `craft-collab` in
-`storytold/craft-libs`, or a repo of its own) rather than two implementations. That decision
-belongs to the owners of both projects (`docs/gaps.md` #2).
+**Servers: one per app, plus an optional combined install.** TrackCraft and Chatcraft each
+ship their own server (`trackcraft-server`, `chatcraft-server`) that installs and runs alone. For
+teams that want both, a **suite server** installs them together on one host: one process (or one
+compose stack), one user directory and sign-in, one admin console, shared notifications, and
+cross-app links (post an issue in a channel, unfurl a page, open a channel from an issue).
+
+To make that possible without coupling the apps:
+
+- Each server is a **library first** (`crates/server`: routes, services, migrations, background
+  jobs behind a `mount(router, deps)` function) with a thin binary in `apps/trackcraft-server`.
+  The suite server is another thin binary that mounts both libraries under `/track` and `/chat`.
+- Identity, sessions, permissions and the event bus sit behind traits (`IdentityProvider`,
+  `EventBus`, `Notifier`). Standalone, each server uses its own built-in implementation; in the
+  suite server both use one shared implementation, so a user signs in once.
+- Cross-app integration goes through a small, versioned **integration API** (events plus link
+  previews). The two apps never touch each other's database, so a standalone TrackCraft can
+  still integrate with a standalone Chatcraft over HTTP/webhooks, the same way as in the suite.
+- The shared pieces (identity, op-log sync, WebSocket fan-out, presence) should live in one
+  shared crate used by both apps (proposed: `craft-collab`), so the suite server doesn't run two
+  copies of the same thing.
 
 ## 2. Crates and layers
 
@@ -41,7 +56,7 @@ belongs to the owners of both projects (`docs/gaps.md` #2).
 | L4 | `trackcraft-engine` | `Session` (workspace, acting user, undo/redo, clock), `CommandSpec` registry, catalog, sample | all of the above |
 | L5 | `trackcraft-mcp` | MCP over JSON-RPC (stdio today), two tools: `trackcraft_commands`, `trackcraft_run` | engine |
 | L5 | `trackcraft-api` (M5) | Jira/Confluence-compatible REST routes mapped onto commands | engine |
-| L6 | `trackcraft-ui-egui` (M1) | the front end, the same egui fork and conventions as the siblings | engine |
+| L6 | `trackcraft-ui-egui` | the front end: views push actions that run as commands after drawing; same egui fork, craft-ui and test conventions as the siblings | engine, model, markup |
 | L7 | apps | `trackcraft-cli`; later `trackcraft` (desktop), `trackcraft-server`, `trackcraft-web` | |
 
 `cargo xtask layers` enforces that every internal dependency points to a lower layer, that
@@ -85,3 +100,4 @@ it with an operation log (each command records its inverse), which is also what 
 ## Revision history
 
 - 2026-10-31: first version (M0).
+- 2026-10-31: servers: one per app, plus an optional suite server that installs both (owner decision).

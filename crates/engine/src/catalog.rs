@@ -77,6 +77,7 @@ pub const FEATURES: &[Feature] = &[
     // Jira — agile
     f(J, "Boards", "Board view by status", "board.view"),
     f(J, "Boards", "Board quick filters", "board.view"),
+    f(J, "Boards", "Drag cards between columns", "issue.transition"),
     f(J, "Boards", "Backlog", ""),
     f(J, "Boards", "Sprints (create, start, complete)", ""),
     f(J, "Boards", "Board column configuration / WIP limits", ""),

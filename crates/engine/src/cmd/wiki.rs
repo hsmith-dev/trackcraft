@@ -15,7 +15,7 @@ pub fn commands() -> Vec<CommandSpec> {
         CommandSpec::new("space.tree", "Page Tree", "Space › Sidebar", space_tree).params(r#"{"key": "ENG"}"#).query(),
         CommandSpec::new("page.create", "Create Page", "Page", page_create)
             .key("C")
-            .params(r#"{"space": "ENG", "title": "…", "parent": 12 (optional; default the space home), "body": "text or ADF"}"#),
+            .params(r#"{"space": "ENG", "title": "…", "parent": 12 (optional; default the space home), "body": "Markdown or ADF"}"#),
         CommandSpec::new("page.get", "View Page", "Page", page_get).params(r#"{"id": 12}"#).query(),
         CommandSpec::new("page.edit", "Edit Page", "Page", page_edit)
             .key("E")

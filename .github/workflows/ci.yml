@@ -21,6 +21,9 @@ jobs:
     # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
     with:
-      # No fonts are needed until the UI lands (M1).
+      # The UI uses egui's bundled fonts; craft-fonts isn't needed yet.
       craft-fonts-ref: ""
-      packages: pkg-config
+      # The desktop app's windowing and GPU dependencies (same list as the sibling apps).
+      packages: >-
+        pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+        libgtk-3-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers

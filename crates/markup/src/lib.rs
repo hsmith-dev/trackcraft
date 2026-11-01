@@ -9,6 +9,8 @@
 //! Parsing is hostile-input safe: nesting is bounded by [`MAX_DEPTH`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod md;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 

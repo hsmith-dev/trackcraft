@@ -1,0 +1,28 @@
+[package]
+name = "trackcraft-ui-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "TrackCraft egui front end; swappable: nothing below depends on it"
+
+[dependencies]
+trackcraft-core.workspace = true
+trackcraft-markup.workspace = true
+trackcraft-model.workspace = true
+trackcraft-engine.workspace = true
+egui = { workspace = true, features = ["default_fonts"] }
+craft-ui.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+serde_json.workspace = true
+trackcraft-engine.workspace = true
+
+[lints]
+workspace = true
+
+[[example]]
+name = "ui_shot"

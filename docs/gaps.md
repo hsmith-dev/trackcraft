@@ -5,8 +5,8 @@
 
 | # | Gap | Why it ranks here | Milestone |
 | --- | --- | --- | --- |
-| 1 | No UI: only the CLI and MCP can use TrackCraft | nobody but agents and developers can try it | M1 |
-| 2 | Shared server/sync design with Chatcraft undecided | blocks M4; deciding late means two implementations | owners' decision |
+| 1 | Desktop UI polish: control channel for the running app, keyboard navigation, autosave, recent files, translations | the UI landed 2026-10-31; these make it pleasant | M1 |
+| 2 | Server as a mountable library + identity/event-bus traits, so the optional suite server can host TrackCraft and Chatcraft together | decided 2026-10-31 (architecture §1); design before M4 code | M4 |
 | 3 | Snapshot undo is O(workspace) per change; no op log | needed for activity history, sync and large workspaces | M2/M4 |
 | 4 | No sprints, backlog or rank | the core Scrum loop | M2 |
 | 5 | Rich-text editing is plain text in, ADF/Markdown out; no tables, panels, tasks | Confluence pages need them | M1/M3 |

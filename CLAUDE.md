@@ -41,10 +41,10 @@ People trust TrackCraft with their team's work; a crash or a corrupted workspace
 | L3 | `store` | `.track` files (versioned JSON, atomic save); later the server's database store |
 | L4 | `engine` | `Session`, undo/redo, **command registry**, feature catalog, sample workspace |
 | L5 | `mcp` (and later `api`) | MCP server; Jira/Confluence-compatible REST API |
-| L6 | `ui-egui` (M1) | the desktop/web front end (swappable) |
-| L7 | `apps/trackcraft-cli`, later `apps/trackcraft`, `apps/trackcraft-server`, `apps/trackcraft-web` | binaries |
+| L6 | `ui-egui` | the desktop/web front end (swappable): shell, issue list, board, issue view, wiki, palette, create dialogs |
+| L7 | `apps/trackcraft` (desktop), `apps/trackcraft-cli`; later `apps/trackcraft-server`, `apps/trackcraft-web` | binaries |
 
-- **Everything is a command.** User-visible behaviour = a `CommandSpec` in `crates/engine/src/cmd/*.rs` (id, label, menu location, shortcut, params doc, `enabled`, `run`) + tests. Ids follow the product areas: `issue.create`, `issue.transition`, `search.jql`, `board.view`, `page.edit`, `space.tree`, plus `edit.*`, `file.*`, `user.*`, `app.*`. UI-only commands (`ui.*`) will live in `crates/ui-egui`. The UI, shortcuts, command palette, CLI, MCP, control channel and REST API all dispatch by id. Programmatic calls never open dialogs.
+- **Everything is a command.** User-visible behaviour = a `CommandSpec` in `crates/engine/src/cmd/*.rs` (id, label, menu location, shortcut, params doc, `enabled`, `run`) + tests. Ids follow the product areas: `issue.create`, `issue.transition`, `search.jql`, `board.view`, `page.edit`, `space.tree`, plus `edit.*`, `file.*`, `user.*`, `app.*`. UI-only requests (`ui.*`: navigate, search, create, palette, editPage, theme) live in `TrackApp::control` in `crates/ui-egui`. The UI, shortcuts, command palette, CLI, MCP, control channel and REST API all dispatch by id. Programmatic calls never open dialogs.
 - **Read-only commands are `.query()`**: no undo step, no dirty flag. Mutating commands get undo for free.
 - **Command output speaks the public API's shape** where one exists (`key`, `summary`, `status.name`, `statusCategory`, `version.number`), so agents that know Jira/Confluence read ours.
 - **Parity is measured:** `crates/engine/src/catalog.rs` lists Jira and Confluence features with command ids. `cargo xtask parity` writes `docs/parity-checklist.md`; a test enforces a floor that only rises. Implement missing rows to raise it; never delete rows.
@@ -56,6 +56,9 @@ People trust TrackCraft with their team's work; a crash or a corrupted workspace
 Before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm, parity --check). Commit after every arc of work that builds, with a task id in the message (`M1.3: board drag and drop`).
 
 ## Running it
+- `cargo run --release -p trackcraft` — the desktop app on the sample workspace (`trackcraft file.track` opens a file).
+- **Headless screenshots** (no window, no focus stealing): `cargo run -p trackcraft-ui-egui --example ui_shot -- script.jsonl`, where each line is a `TrackApp::control` request (`{"method":"ui.navigate","params":{"view":"board","project":"LUME"}}`, `{"method":"engine.execute","params":{"command":…}}`) or `{"shot":"/abs/out.png"}`. **For UI work, look at the result.**
+- UI tests (`crates/ui-egui/src/tests.rs`) run under egui_kittest, which panics on missing glyphs and on widgets without an accessible name: label every control (`labelled_by`), and write shortcuts as text (`crate::key("Mod+K")`), not ⌘/⇧ symbols the bundled font lacks. Use `craft_ui::ComboBox`, never egui's (clippy enforces it).
 - `cargo run -p trackcraft-cli -- commands` — every command with its params.
 - `cargo run -p trackcraft-cli -- jql --sample 'project = LUME AND statusCategory != Done ORDER BY priority'`
 - `cargo run -p trackcraft-cli -- run --sample --cmd 'issue.create={"project":"LUME","summary":"Try it"}' --cmd 'board.view={"project":"LUME"}' --out /tmp/w.track`

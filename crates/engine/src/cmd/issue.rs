@@ -17,7 +17,7 @@ pub fn commands() -> Vec<CommandSpec> {
         CommandSpec::new("project.list", "All Projects", "Projects", project_list).query(),
         CommandSpec::new("project.get", "Project Details", "Projects", project_get).params(r#"{"key": "LUME"}"#).query(),
         CommandSpec::new("issue.create", "Create Issue", "Issue", issue_create).key("C").params(
-            r#"{"project": "LUME", "summary": "…", "type": "Task", "description": "text or ADF", "priority": "High", "assignee": "ann", "labels": ["ui"], "parent": "LUME-1", "storyPoints": 3}"#,
+            r#"{"project": "LUME", "summary": "…", "type": "Task", "description": "Markdown or ADF", "priority": "High", "assignee": "ann", "labels": ["ui"], "parent": "LUME-1", "storyPoints": 3}"#,
         ),
         CommandSpec::new("issue.get", "View Issue", "Issue", issue_get).params(r#"{"key": "LUME-1"}"#).query(),
         CommandSpec::new("issue.edit", "Edit Issue", "Issue", issue_edit)
@@ -27,7 +27,7 @@ pub fn commands() -> Vec<CommandSpec> {
         CommandSpec::new("issue.assignToMe", "Assign to Me", "Issue", issue_assign_me).key("I").params(r#"{"key": "LUME-1"}"#),
         CommandSpec::new("issue.transitions", "Available Transitions", "Issue › Workflow", issue_transitions).params(r#"{"key": "LUME-1"}"#).query(),
         CommandSpec::new("issue.transition", "Transition", "Issue › Workflow", issue_transition).params(r#"{"key": "LUME-1", "to": "In Progress"}"#),
-        CommandSpec::new("issue.comment", "Add Comment", "Issue › Activity", issue_comment).key("M").params(r#"{"key": "LUME-1", "body": "text or ADF"}"#),
+        CommandSpec::new("issue.comment", "Add Comment", "Issue › Activity", issue_comment).key("M").params(r#"{"key": "LUME-1", "body": "Markdown or ADF"}"#),
         CommandSpec::new("issue.deleteComment", "Delete Comment", "Issue › Activity", issue_delete_comment).params(r#"{"key": "LUME-1", "id": 7}"#),
         CommandSpec::new("issue.link", "Link Issue", "Issue › Links", issue_link)
             .params(r#"{"key": "LUME-1", "type": "blocks"|"relates to"|"duplicates"|"clones", "target": "LUME-2"}"#),

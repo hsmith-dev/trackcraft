@@ -1,0 +1,23 @@
+[package]
+name = "trackcraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+description = "TrackCraft desktop app"
+
+[dependencies]
+trackcraft-engine.workspace = true
+trackcraft-store.workspace = true
+trackcraft-ui-egui.workspace = true
+egui.workspace = true
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd.workspace = true
+
+[lints]
+workspace = true

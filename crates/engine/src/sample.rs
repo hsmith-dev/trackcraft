@@ -72,7 +72,7 @@ pub fn workspace(now: Timestamp) -> Workspace {
     let _ = w.create_space("ENG", "Engineering Handbook", "riley", ago(60));
     let _ = w.create_space("TEAM", "Team Home", "jo", ago(60));
     let page = |w: &mut Workspace, space: &str, parent, title: &str, body: &str, who: &str, d: i64| {
-        w.create_page(NewPage { space: space.into(), parent, title: title.into(), body: Doc::plain(body) }, who, ago(d)).ok()
+        w.create_page(NewPage { space: space.into(), parent, title: title.into(), body: Doc::from_markdown(body) }, who, ago(d)).ok()
     };
     let arch = page(
         &mut w,
@@ -85,7 +85,7 @@ pub fn workspace(now: Timestamp) -> Workspace {
     );
     page(&mut w, "ENG", arch, "Sync protocol", "Each device keeps an operation log; the server merges logs and sends back the result.", "sam", 40);
     page(&mut w, "ENG", arch, "Offline cache", "Design notes for LUME-2: least-recently-used eviction, capped by item count.", "sam", 17);
-    page(&mut w, "ENG", None, "Release checklist", "1. Freeze the branch\n2. Run the full test suite\n3. Write the release notes", "riley", 45);
+    page(&mut w, "ENG", None, "Release checklist", "1. Freeze the branch\n2. Run the **full** test suite\n3. Write the release notes", "riley", 45);
     page(
         &mut w,
         "TEAM",

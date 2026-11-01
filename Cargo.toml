@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
-default-members = ["crates/*", "apps/trackcraft-cli", "xtask"]
+default-members = ["crates/*", "apps/trackcraft", "apps/trackcraft-cli", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,7 @@ trackcraft-model = { path = "crates/model" }
 trackcraft-store = { path = "crates/store" }
 trackcraft-engine = { path = "crates/engine" }
 trackcraft-mcp = { path = "crates/mcp" }
+trackcraft-ui-egui = { path = "crates/ui-egui" }
 
 # foundation
 thiserror = "2"
@@ -28,6 +29,13 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 # A wall clock that works on native and in the browser.
 web-time = "1.1"
+
+# ui — the suite's egui fork (same pins as the sibling apps; see [patch.crates-io])
+egui = "0.37"
+eframe = { version = "0.37", default-features = false }
+egui_kittest = "0.37"
+rfd = "0.17"
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -53,3 +61,21 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 0
+
+# The suite's egui and winit forks, as in the sibling apps.
+[patch.crates-io]
+ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui-wgpu = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_extras = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_kittest = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_demo_lib = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+egui_inspection = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }

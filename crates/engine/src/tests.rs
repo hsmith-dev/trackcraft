@@ -32,7 +32,7 @@ fn catalog_ids_exist_and_floor_holds() {
     }
     let (done, total) = catalog::coverage();
     // The floor only rises: raise it when you implement catalog rows.
-    assert!(done >= 49, "catalog coverage fell to {done}/{total}");
+    assert!(done >= 50, "catalog coverage fell to {done}/{total}");
 }
 
 /// Every command, fed junk, returns an error or a value — never a panic, and a failed command

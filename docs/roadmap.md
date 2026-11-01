@@ -1,8 +1,10 @@
 # Roadmap: milestones and current focus
 
-> **Status:** 2026-10-31 · M0 done; M1 next.
+> **Status:** 2026-10-31 · M0 done; M1.1–M1.6 landed; M1.7 and polish open.
 
-## Current focus: M1 — desktop app
+## Current focus: M1 — desktop app (landed 2026-10-31; finishing)
+
+Done: M1.1–M1.6 below. Open: M1.7 (a TCP control channel for the running app, like the siblings; `TrackApp::control` already implements the methods), keyboard navigation in lists and boards, window geometry and recent files, autosave, interface translations (craft-i18n), and board column order by rank (needs M2 rank).
 
 Bring up `crates/ui-egui` and `apps/trackcraft` on the suite's egui fork (same pins and patch
 section as `../Wordcraft/wordcraft/Cargo.toml`), with the siblings' conventions: theme tokens,
@@ -30,7 +32,8 @@ the CLI.
 - **M3 wiki depth:** tables, panels, task lists, macros (TOC, children, issue lists), page and
   inline comments, version diff, templates, attachments/images, PDF export (craft-pdf), DOCX
   export, blog posts, CQL.
-- **M4 team server:** shared collaboration layer with Chatcraft (see architecture §1), accounts,
-  permissions, real-time sync, notifications, web client.
+- **M4 team server:** `trackcraft-server` (standalone) and, optionally, the suite server that
+  installs TrackCraft and Chatcraft together (architecture §1); accounts, permissions, real-time
+  sync, notifications, web client.
 - **M5 compatibility:** REST API subsets and importers (`api-compatibility.md`).
 - **M6 releases:** packaging and signing through craft-common-actions.
