@@ -33,6 +33,7 @@ web-time = "1.1"
 # ui — the suite's egui fork (same pins as the sibling apps; see [patch.crates-io])
 egui = "0.37"
 eframe = { version = "0.37", default-features = false }
+egui_extras = { version = "0.37", default-features = false }
 egui_kittest = "0.37"
 rfd = "0.17"
 craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "92d392cff132eaf53e13afff77f38b5c11b73aa0" }

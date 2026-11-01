@@ -1,11 +1,17 @@
+{"method":"ui.theme","params":{"dark":false}}
 {"method":"ui.search","params":{"jql":"statusCategory != Done ORDER BY priority, updated DESC"}}
 {"shot":"/tmp/tc-shots/list.png"}
 {"method":"ui.search","params":{"jql":"project = LUME ORDER BY summary DESC"}}
 {"method":"ui.key","params":{"key":"j"}}
 {"method":"ui.key","params":{"key":"j"}}
 {"shot":"/tmp/tc-shots/list-sorted-selected.png"}
+{"method":"ui.search","params":{"jql":"summary ~ nothingmatchesthis ORDER BY key"}}
+{"shot":"/tmp/tc-shots/list-empty.png"}
 {"method":"ui.search","params":{"jql":"status = "}}
 {"shot":"/tmp/tc-shots/list-error.png"}
 {"method":"ui.theme","params":{"dark":true}}
 {"method":"ui.search","params":{"jql":"ORDER BY updated DESC"}}
+{"method":"ui.key","params":{"key":"j"}}
 {"shot":"/tmp/tc-shots/list-dark.png"}
+{"method":"ui.search","params":{"jql":"summary ~ nothingmatchesthis"}}
+{"shot":"/tmp/tc-shots/list-empty-dark.png"}

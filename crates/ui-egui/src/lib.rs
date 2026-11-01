@@ -168,6 +168,12 @@ pub struct TrackApp {
     pending: Vec<Action>,
     file_request: Option<FileRequest>,
     focus_search: bool,
+    // UI-3: issue list paging. `jql_start` is the first row of the shown page (of `jql_paged`;
+    // a new query starts at 0), `jql_total` every match, `jql_ran_start` the cached page.
+    pub(crate) jql_start: usize,
+    pub(crate) jql_total: usize,
+    jql_paged: String,
+    jql_ran_start: usize,
 }
 
 impl TrackApp {
@@ -203,6 +209,11 @@ impl TrackApp {
             pending: vec![],
             file_request: None,
             focus_search: false,
+            // UI-3
+            jql_start: 0,
+            jql_total: 0,
+            jql_paged: String::new(),
+            jql_ran_start: 0,
         }
     }
 
@@ -253,20 +264,40 @@ impl TrackApp {
         }
     }
 
-    /// Runs the JQL in the search field (cached until it changes or the workspace does).
+    /// Runs the JQL in the search field, one page of [`LIST_PAGE`] rows from `jql_start`
+    /// (cached until the query, the page or the workspace changes).
     pub(crate) fn refresh_search(&mut self) {
+        if self.jql_paged != self.jql {
+            self.jql_paged = self.jql.clone();
+            self.jql_start = 0;
+        }
         // `jql_ran` is cleared after every command, so a match means nothing changed.
         let key = self.jql.clone();
-        if self.jql_ran.as_deref() == Some(key.as_str()) {
+        if self.jql_ran.as_deref() == Some(key.as_str()) && self.jql_ran_start == self.jql_start {
             return;
         }
-        self.jql_result = match self.session.run("search.jql", &json!({"jql": self.jql, "maxResults": 1000})) {
+        let run = |s: &mut Session, start: usize| s.run("search.jql", &json!({"jql": key, "startAt": start, "maxResults": LIST_PAGE}));
+        let mut res = run(&mut self.session, self.jql_start);
+        // A page past the end (issues were deleted, or a hostile start): show the last page.
+        if let Ok(v) = &res {
+            let total = v["total"].as_u64().map_or(0, |n| usize::try_from(n).unwrap_or(usize::MAX));
+            if self.jql_start > 0 && self.jql_start >= total {
+                self.jql_start = total.saturating_sub(1) / LIST_PAGE * LIST_PAGE;
+                res = run(&mut self.session, self.jql_start);
+            }
+        }
+        self.jql_result = match res {
             Ok(v) => {
+                self.jql_total = v["total"].as_u64().map_or(0, |n| usize::try_from(n).unwrap_or(usize::MAX));
                 Ok(v["issues"].as_array().into_iter().flatten().filter_map(|i| i["key"].as_str()).filter_map(|k| IssueKey::parse(k).ok()).collect())
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                self.jql_total = 0;
+                Err(e)
+            }
         };
         self.jql_ran = Some(key);
+        self.jql_ran_start = self.jql_start;
     }
 
     /// Per-frame logic without drawing (shortcuts, toasts).
@@ -611,6 +642,9 @@ pub(crate) fn ago(now: trackcraft_model::Timestamp, t: trackcraft_model::Timesta
         _ => t.format("%b %-d, %Y").to_string(),
     }
 }
+
+// UI-3: rows per issue-list page (the engine's `search.jql` cap).
+pub(crate) const LIST_PAGE: usize = 1000;
 
 #[cfg(test)]
 mod tests;
