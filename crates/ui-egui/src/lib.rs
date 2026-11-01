@@ -5,6 +5,7 @@
 //! holds a mutable borrow of the session while it paints.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod backlog; // UI-11
 mod guard;
 pub mod icons;
 mod issues;
@@ -14,6 +15,7 @@ mod order;
 mod palette;
 mod route;
 mod shell;
+mod sprints; // UI-12
 pub mod theme;
 mod widgets;
 mod wiki;
@@ -182,6 +184,10 @@ pub struct TrackApp {
     pub(crate) page_labels: Option<(Id, String)>,
     /// The first key of a two-key chord (`G then I`) and when it was pressed.
     pub(crate) chord: Option<(keys::Chord, f64)>,
+    /// Backlog selection, collapsed sections, inline create and the move picker (UI-11).
+    pub(crate) backlog: backlog::BacklogUi,
+    /// The open sprint dialog: start, complete, create, edit or delete (UI-12).
+    pub(crate) sprint_dialog: Option<sprints::SprintDialog>,
 }
 
 impl TrackApp {
@@ -224,6 +230,8 @@ impl TrackApp {
             jql_ran_start: 0,
             page_labels: None,
             chord: None,
+            backlog: backlog::BacklogUi::default(), // UI-11
+            sprint_dialog: None,                    // UI-12
         }
     }
 
@@ -316,7 +324,12 @@ impl TrackApp {
         ctx.set_visuals(t.visuals());
         let typing = ctx.egui_wants_keyboard_input();
         let guarding = self.guard.is_some();
-        let dialog = self.create.is_some() || self.palette.is_some() || self.new_page.is_some() || self.page_labels.is_some();
+        let dialog = self.create.is_some()
+            || self.palette.is_some()
+            || self.new_page.is_some()
+            || self.page_labels.is_some()
+            || self.sprint_dialog.is_some()
+            || self.backlog.move_pick.is_some();
         let modal = dialog || self.help || guarding;
         let gate = keys::Gate { typing, modal, help_only: self.help && !dialog && !guarding, guarding };
         let injected = std::mem::take(&mut self.injected);
@@ -325,6 +338,13 @@ impl TrackApp {
             use egui::{Key, Modifiers};
             // The scoped keymap (see `keys.rs`): registry shortcuts plus UI-only bindings.
             let fired = keys::dispatch(self, i, gate);
+            // The backlog's own keys (listed in the overlay under the Backlog scope).
+            if !typing
+                && !modal
+                && let View::Backlog(p) = self.view.clone()
+            {
+                backlog::keys(self, i, &p);
+            }
             if guarding {
                 // Escape on "Discard your changes?" is "Keep editing"; consumed so the dialog
                 // underneath does not also see it.
@@ -343,6 +363,8 @@ impl TrackApp {
                     self.palette = None;
                     self.new_page = None;
                     self.page_labels = None;
+                    self.sprint_dialog = None;
+                    self.backlog.move_pick = None;
                     self.help = false;
                 } else if matches!(self.view, View::Issue(_)) {
                     keys::cancel_issue_edits(self);
@@ -379,6 +401,8 @@ impl TrackApp {
                 View::Issue(k) => issues::detail(self, ui, &t, &k),
                 View::Page(id) => wiki::page(self, ui, &t, id),
                 View::PageHistory(id) => wiki::history(self, ui, &t, id),
+                View::Backlog(p) => backlog::backlog(self, ui, &t, &p),                 // UI-11
+                View::SprintBoard(p, id) => issues::sprint_board(self, ui, &t, &p, id), // UI-12
             }
         });
         issues::create_dialog(self, ui.ctx(), &t);
@@ -387,6 +411,8 @@ impl TrackApp {
         palette::show(self, ui.ctx(), &t);
         keys::help(self, ui.ctx(), &t);
         guard::dialog(self, ui.ctx(), &t);
+        backlog::move_picker(self, ui.ctx(), &t); // UI-11
+        sprints::dialog(self, ui.ctx(), &t); // UI-12
         self.show_toast(ui.ctx(), &t);
         self.apply_pending();
     }
@@ -523,6 +549,8 @@ impl TrackApp {
             View::Issue(k) => !self.session.ws.issues.contains_key(k),
             View::Page(id) | View::PageHistory(id) => !self.session.ws.pages.contains_key(id),
             View::Board(p) => !self.session.ws.projects.contains_key(p),
+            View::Backlog(p) => !self.session.ws.projects.contains_key(p), // UI-11
+            View::SprintBoard(_, id) => !self.session.ws.sprints.contains_key(id), // UI-12
             _ => false,
         };
         if gone {
@@ -541,6 +569,9 @@ impl TrackApp {
     /// fail with "unsaved changes" instead of opening a dialog; `"force": true` discards the text.
     /// - `ui.theme` `{"dark": bool}`
     /// - `ui.key` `{"key": "j"|"ArrowDown"|"Enter"|"?"…, "shift"|"alt"|"command": bool}`: a key press at the next frame
+    /// - `ui.sprintDialog` `{"kind": "start"|"complete"|"create"|"edit"|"delete", "id": n, "project": "LUME"}`:
+    ///   opens a sprint dialog (`create` takes `project`; the others `id`, or `project` for its
+    ///   active sprint (complete) or next planned one) (UI-12)
     pub fn control(&mut self, req: &Value) -> Result<Value, String> {
         let method = req.get("method").and_then(Value::as_str).unwrap_or_default();
         let p = req.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -600,6 +631,12 @@ impl TrackApp {
             }
             "ui.theme" => {
                 self.dark = p.get("dark").and_then(Value::as_bool);
+                Ok(json!({"ok": true}))
+            }
+            // UI-12
+            "ui.sprintDialog" => {
+                let id = p.get("id").and_then(Value::as_u64).map(Id);
+                self.sprint_dialog = Some(sprints::SprintDialog::open(&self.session, &s("kind"), id, &s("project"))?);
                 Ok(json!({"ok": true}))
             }
             other => Err(format!("unknown method {}", other.chars().take(60).collect::<String>())),

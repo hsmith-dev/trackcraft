@@ -1,6 +1,6 @@
 # UI plan: the egui front end from M1 polish to the team server
 
-> **Status:** 2026-10-31 · first version. Covers `crates/ui-egui` as of the M1 landing (commit
+> **Status:** 2026-10-31 · first version; UI-11/12 set the backlog's Move to sprint key to `Shift+S`. Covers `crates/ui-egui` as of the M1 landing (commit
 > 473b3ff): shell, JQL list, board, issue view, create dialog, page view/editor/history, palette.
 > Work items are `UI-n` (§6); new engine commands are marked **NEW** with a proposed id and params.
 
@@ -360,7 +360,7 @@ Lume backlog                       [filter…] [Only mine] [Epics ▸]      [+ C
    ⠿ ▣ LUME-12  Sync crashes when…     IN PROGRESS  ▲  3  (AL)
    ⠿ ◆ LUME-15  Login copy             TO DO        ●  1  (RS)
 ▾ Lume 5 · planned · 0 pts                         [Start sprint] [⋯ edit / delete]
-   (empty) Drag issues here, or select and press Mod+Shift+S to move them.
+   (empty) Drag issues here, or select one and press Shift+S to move it.
 ▾ Backlog · 42 issues · 96 pts                                     [+ Create issue]
    ⠿ ◆ LUME-20  …
    + Create issue (inline row: type ▾ + summary, Enter)
@@ -368,7 +368,8 @@ Lume backlog                       [filter…] [Only mine] [Epics ▸]      [+ C
 - **Interactions:** drag handle `⠿` (drawn) reorders within a section and moves between
   sprints/backlog; multi-select drag moves the whole selection keeping relative order; drop
   indicator is a 2 px accent line between rows. Keyboard: `Mod+Shift+Up/Down` rank one step,
-  `Mod+Shift+Home/End` top/bottom of section, `Mod+Shift+S` "Move to sprint…" picker. Inline
+  `Mod+Shift+Home/End` top/bottom of section, `Shift+S` "Move to sprint…" picker (`Mod+Shift+S`
+  is Save As). Inline
   create row at the bottom of each section. Sections collapse; sprint headers show points and
   issue counts per status category as a small three-segment bar (grey/amber/green).
 - **Cmds (all NEW):**
@@ -728,7 +729,7 @@ is open.
 | `Mod+A` | Select all on page | NEW |
 | `Mod+Enter` (in the JQL field) | Run query | NEW (Enter also runs) |
 | `Mod+Shift+Up/Down`, `Mod+Shift+Home/End` | Rank (backlog) | NEW (`issue.rank`) |
-| `Mod+Shift+S` (backlog, rows selected) | Move to sprint… | NEW — only in backlog scope with a selection; Save As stays global otherwise. Alternative if this proves confusing: `Shift+S`. |
+| `Shift+S` (backlog, a row selected) | Move to sprint… | exists (UI-11) — `Mod+Shift+S` stays Save As everywhere; `Shift+S` is free in every scope and never fires while typing. |
 | `A`, `I`, `E`, `T`, `W` | Assign, Assign to me, Edit, Transition, Watch — on focused row | registry, NEW dispatch |
 
 ### Board

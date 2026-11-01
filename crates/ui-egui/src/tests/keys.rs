@@ -291,3 +291,31 @@ fn palette_shows_shortcuts_for_the_view() {
     h.run_steps(3);
     assert!(h.query_by_label("I").is_some(), "no shortcut next to Assign to Me");
 }
+
+#[test]
+fn backlog_shortcuts_match_the_overlay_table() {
+    // `backlog::SHORTCUTS` (the backlog's own list) and the Backlog scope of the keymap table
+    // must describe the same keys, or the `?` overlay drifts from what the backlog does.
+    let table_rows: Vec<(String, String)> = table().iter().filter(|b| b.scope == Scope::Backlog).map(|b| (b.keys.clone(), b.label.clone())).collect();
+    let own: Vec<(String, String)> = crate::backlog::SHORTCUTS.iter().map(|(k, l)| ((*k).to_string(), (*l).to_string())).collect();
+    assert_eq!(table_rows, own);
+}
+
+#[test]
+fn single_keys_are_off_behind_sprint_dialogs() {
+    let mut h = harness(app());
+    h.state_mut().control(&json!({"method": "ui.navigate", "params": {"view": "backlog", "project": "LUME"}})).unwrap();
+    h.run_steps(2);
+    h.state_mut().control(&json!({"method": "ui.sprintDialog", "params": {"kind": "create", "project": "LUME"}})).unwrap();
+    h.run_steps(2);
+    assert!(h.state().sprint_dialog.is_some());
+    // Take focus away from the dialog's text field so only the modal gate can stop `C`.
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::NULL));
+    h.run_steps(1);
+    h.key_press(egui::Key::C);
+    h.run_steps(2);
+    assert!(h.state().create.is_none(), "C opened create-issue behind the sprint dialog");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().sprint_dialog.is_none(), "Escape closes the sprint dialog");
+}

@@ -33,10 +33,11 @@ pub(crate) enum Scope {
     Board,
     Issue,
     Page,
+    Backlog,
 }
 
 impl Scope {
-    pub(crate) const ALL: [Scope; 5] = [Scope::Global, Scope::List, Scope::Board, Scope::Issue, Scope::Page];
+    pub(crate) const ALL: [Scope; 6] = [Scope::Global, Scope::List, Scope::Board, Scope::Issue, Scope::Page, Scope::Backlog];
 
     pub(crate) fn title(self) -> &'static str {
         match self {
@@ -45,6 +46,7 @@ impl Scope {
             Scope::Board => "Board",
             Scope::Issue => "Issue",
             Scope::Page => "Page",
+            Scope::Backlog => "Backlog",
         }
     }
 
@@ -197,6 +199,13 @@ pub(crate) const UI_BINDINGS: &[(Scope, &str, &str, Act)] = &[
     (Scope::Global, "G then B", "Go to the board", Act::GoBoard),
     (Scope::Global, "G then P", "Go to the space home", Act::GoSpace),
     (Scope::Global, "Escape", "Close a dialog, cancel an edit", Act::Doc),
+    // The backlog handles its own keys (`backlog::keys`); listed here for the overlay.
+    (Scope::Backlog, "J / Down", "Next issue", Act::Doc),
+    (Scope::Backlog, "K / Up", "Previous issue", Act::Doc),
+    (Scope::Backlog, "Enter / O", "Open the selected issue", Act::Doc),
+    (Scope::Backlog, "Mod+Shift+Up / Mod+Shift+Down", "Rank the issue up or down one step", Act::Doc),
+    (Scope::Backlog, "Mod+Shift+Home / Mod+Shift+End", "Rank to the top or bottom of its section", Act::Doc),
+    (Scope::Backlog, "Shift+S", "Move to sprint…", Act::Doc),
     (Scope::List, "J / Down", "Next issue", Act::ListNext),
     (Scope::List, "K / Up", "Previous issue", Act::ListPrev),
     (Scope::List, "Enter", "Open the selected issue", Act::ListOpen),
@@ -252,7 +261,8 @@ fn build() -> Vec<Binding> {
 pub(crate) fn view_scope(app: &TrackApp) -> Option<Scope> {
     match &app.view {
         View::Issues => Some(Scope::List),
-        View::Board(_) => Some(Scope::Board),
+        View::Board(_) | View::SprintBoard(..) => Some(Scope::Board),
+        View::Backlog(_) => Some(Scope::Backlog),
         View::Issue(_) => Some(Scope::Issue),
         View::Page(id) if !app.page_edit.as_ref().is_some_and(|e| e.id == *id) => Some(Scope::Page),
         View::Page(_) | View::Home | View::PageHistory(_) => None,
@@ -372,7 +382,7 @@ pub(crate) fn run(app: &mut TrackApp, act: Act) {
         Act::ListPrev => list_step(app, -1),
         Act::ListOpen => list_step(app, 0),
         Act::BoardLeft | Act::BoardRight | Act::BoardUp | Act::BoardDown | Act::BoardOpen | Act::BoardNext | Act::BoardPrev => {
-            if let View::Board(p) = app.view.clone() {
+            if let View::Board(p) | View::SprintBoard(p, _) = app.view.clone() {
                 board_step(app, &p, act);
             }
         }

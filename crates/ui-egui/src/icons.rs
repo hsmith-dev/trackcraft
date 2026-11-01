@@ -72,7 +72,12 @@ pub fn paint_issue_type(p: &Painter, r: Rect, name: &str) {
 /// Priority as 1–4 filled bars (Highest = 4 … Lowest = none filled, one outline).
 pub fn priority(ui: &mut Ui, t: &Tokens, name: &str, rank: i64, size: f32) -> Response {
     let (r, resp) = square(ui, size);
-    let p = ui.painter();
+    paint_priority(ui.painter(), t, r, rank);
+    resp.on_hover_text(format!("Priority: {name}"))
+}
+
+/// The priority bars into `r` (for rows painted without widgets, like the backlog's).
+pub fn paint_priority(p: &Painter, t: &Tokens, r: Rect, rank: i64) {
     let filled = (5 - rank.clamp(1, 5)) as usize;
     let col = t.priority(rank);
     let bw = r.width() / 6.0;
@@ -86,7 +91,22 @@ pub fn priority(ui: &mut Ui, t: &Tokens, name: &str, rank: i64, size: f32) -> Re
             p.rect_stroke(bar, 1.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
         }
     }
-    resp.on_hover_text(format!("Priority: {name}"))
+}
+
+/// A drag handle: two columns of three dots (drawn; the bundled font has no handle glyph).
+pub fn paint_drag_handle(p: &Painter, color: Color32, center: Pos2) {
+    for dx in [-2.5f32, 2.5] {
+        for dy in [-5.0f32, 0.0, 5.0] {
+            p.circle_filled(center + vec2(dx, dy), 1.5, color);
+        }
+    }
+}
+
+/// Three horizontal dots: a "more actions" button face.
+pub fn paint_more(p: &Painter, color: Color32, center: Pos2) {
+    for dx in [-5.0f32, 0.0, 5.0] {
+        p.circle_filled(center + vec2(dx, 0.0), 1.7, color);
+    }
 }
 
 /// A round avatar with initials.

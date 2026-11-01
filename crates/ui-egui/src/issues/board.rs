@@ -1,30 +1,40 @@
-//! The project board: status columns, drag and drop, keyboard selection.
+//! The project board: status columns, drag and drop, keyboard selection. A sprint board
+//! (`View::SprintBoard`) is the same board limited to one sprint's issues, under a sprint header.
 
 use egui::{RichText, Ui};
 use serde_json::json;
-use trackcraft_core::{IssueKey, ProjectKey};
-use trackcraft_model::{Issue, StatusCategory, Workspace, priority_rank};
+use trackcraft_core::{Id, IssueKey, ProjectKey};
+use trackcraft_model::{Issue, SprintState, StatusCategory, Timestamp, Workspace, priority_rank};
 
 use crate::theme::Tokens;
 use crate::widgets::{pill, who};
 use crate::{Action, Then, TrackApp, View, icons};
 
-/// The board's columns in workflow order: (status, category, card keys in display order),
-/// after the board's filters. Drawing and keyboard navigation share it.
+/// The sprint the current view limits `key`'s board to, if any.
+fn board_sprint(app: &TrackApp, key: &ProjectKey) -> Option<Id> {
+    match &app.view {
+        View::SprintBoard(p, id) if p == key => Some(*id),
+        _ => None,
+    }
+}
+
+/// The board's columns in workflow order: (status, category, card keys in rank order),
+/// after the board's filters (and, on a sprint board, only that sprint's issues). Drawing and
+/// keyboard navigation share it.
 pub(crate) fn board_columns(app: &TrackApp, key: &ProjectKey) -> Vec<(String, StatusCategory, Vec<IssueKey>)> {
     let Ok(project) = app.session.ws.project(key.as_str()) else { return vec![] };
     let me = app.session.user.as_str();
     let needle = app.board_text.to_lowercase();
-    let mut cards: Vec<&Issue> = app
-        .session
-        .ws
-        .issues
-        .values()
-        .filter(|i| &i.key.project == key)
+    let sprint = board_sprint(app, key);
+    let ws = &app.session.ws;
+    let cards: Vec<&Issue> = ws
+        .rank_order(key)
+        .iter()
+        .filter_map(|k| ws.issues.get(k))
+        .filter(|i| sprint.is_none_or(|s| i.sprint == Some(s)))
         .filter(|i| !app.board_mine || i.assignee.as_deref() == Some(me))
         .filter(|i| needle.is_empty() || i.summary.to_lowercase().contains(&needle) || i.key.to_string().to_lowercase().contains(&needle))
         .collect();
-    cards.sort_by_key(|i| (priority_rank(&i.priority).unwrap_or(9), i.key.number));
     project
         .workflow
         .statuses
@@ -33,20 +43,111 @@ pub(crate) fn board_columns(app: &TrackApp, key: &ProjectKey) -> Vec<(String, St
         .collect()
 }
 
+/// "Oct 27 – Nov 10" (either end may be missing).
+pub(crate) fn date_range(start: Option<Timestamp>, end: Option<Timestamp>) -> String {
+    let f = |t: Option<Timestamp>| t.map(|t| t.format("%b %-d").to_string());
+    match (f(start), f(end)) {
+        (Some(s), Some(e)) => format!("{s} – {e}"),
+        (Some(s), None) => format!("from {s}"),
+        (None, Some(e)) => format!("until {e}"),
+        (None, None) => "No dates".into(),
+    }
+}
+
+/// "9 days left", "Ends today", "2 days over"; `None` without an end date.
+pub(crate) fn days_left(now: Timestamp, end: Option<Timestamp>) -> Option<String> {
+    let days = (end? - now).num_days();
+    Some(match days {
+        d if d < 0 => format!("{} days over", d.saturating_neg()),
+        0 => "Ends today".into(),
+        1 => "1 day left".into(),
+        d => format!("{d} days left"),
+    })
+}
+
+/// A small upper-case state chip: ACTIVE (accent), PLANNED, CLOSED.
+pub(crate) fn state_chip(ui: &mut Ui, t: &Tokens, state: SprintState) -> egui::Response {
+    let done = t.status(StatusCategory::Done);
+    let (text, fill, fg) = match state {
+        SprintState::Active => ("ACTIVE", t.accent, t.on_accent),
+        SprintState::Future => ("PLANNED", t.surface_alt, t.muted),
+        SprintState::Closed => ("CLOSED", done.0, done.1),
+    };
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, if state == SprintState::Future { t.border } else { fill }))
+        .corner_radius(4)
+        .inner_margin(egui::Margin::symmetric(6, 1))
+        .show(ui, |ui| ui.label(RichText::new(text).size(10.5).strong().color(fg)))
+        .response
+}
+
+/// The sprint board: a sprint header (name, dates, days left, goal), then the board.
+pub(crate) fn sprint_board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey, id: Id) {
+    let Ok(sp) = app.session.ws.sprint(id).cloned() else {
+        ui.label("This sprint no longer exists.");
+        return;
+    };
+    let now = app.session.now();
+    ui.horizontal(|ui| {
+        ui.heading(RichText::new(&sp.name).size(22.0));
+        state_chip(ui, t, sp.state);
+        ui.label(RichText::new(date_range(sp.start, sp.end)).color(t.muted));
+        let left = match sp.state {
+            SprintState::Closed => sp.completed.map(|c| format!("Completed {}", c.format("%b %-d"))),
+            _ => days_left(now, sp.end),
+        };
+        if let Some(l) = left {
+            ui.label(RichText::new(l).strong());
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if sp.state == SprintState::Active
+                && ui.add(egui::Button::new(RichText::new("Complete sprint").color(t.on_accent).strong()).fill(t.accent)).clicked()
+            {
+                app.sprint_dialog = crate::sprints::SprintDialog::open(&app.session, "complete", Some(id), "").ok();
+            }
+            if ui.button("Backlog").on_hover_text("Plan this project's sprints").clicked() {
+                app.push(Action::Nav(View::Backlog(key.clone())));
+            }
+            if ui.button("Whole project").on_hover_text("Show every issue in the project").clicked() {
+                app.push(Action::Nav(View::Board(key.clone())));
+            }
+        });
+    });
+    if !sp.goal.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Goal").color(t.muted).strong().size(12.0));
+            ui.label(&sp.goal);
+        });
+    }
+    board_body(app, ui, t, key);
+}
+
 pub(crate) fn board(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
     let Ok(project) = app.session.ws.project(key.as_str()) else {
         ui.label("This project no longer exists.");
         return;
     };
     let pname = project.name.clone();
+    let active = app.session.ws.active_sprint(key).map(|s| (s.id, s.name.clone()));
     ui.horizontal(|ui| {
         ui.heading(RichText::new(format!("{pname} board")).size(22.0));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("+ Create issue").clicked() {
                 app.push(Action::OpenCreate(Some(key.to_string())));
             }
+            if let Some((id, name)) = active
+                && ui.button(format!("{name} only")).on_hover_text("Show only the active sprint's issues").clicked()
+            {
+                app.push(Action::Nav(View::SprintBoard(key.clone(), id)));
+            }
         });
     });
+    board_body(app, ui, t, key);
+}
+
+/// Filters, then the columns.
+fn board_body(app: &mut TrackApp, ui: &mut Ui, t: &Tokens, key: &ProjectKey) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.add(egui::TextEdit::singleline(&mut app.board_text).hint_text("Filter cards").desired_width(200.0));

@@ -101,7 +101,7 @@ pub(crate) fn top_bar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
 
 fn current_project(app: &TrackApp) -> Option<String> {
     match &app.view {
-        View::Board(p) => Some(p.to_string()),
+        View::Board(p) | View::Backlog(p) | View::SprintBoard(p, _) => Some(p.to_string()),
         View::Issue(k) => Some(k.project.to_string()),
         _ => None,
     }
@@ -152,11 +152,23 @@ pub(crate) fn sidebar(app: &mut TrackApp, ui: &mut Ui, t: &Tokens) {
                 for (key, name) in projects {
                     ui.label(RichText::new(format!("{name}  ·  {key}")).strong().size(13.0));
                     let pk = trackcraft_core::ProjectKey::parse(&key).ok();
-                    let on_board = pk.as_ref().is_some_and(|k| app.view == View::Board(k.clone()));
+                    let on_board = pk.as_ref().is_some_and(|k| matches!(&app.view, View::Board(p) | View::SprintBoard(p, _) if p == k));
                     if nav_item(ui, t, on_board, 10.0, "Board").clicked()
                         && let Some(k) = pk.clone()
                     {
-                        app.push(Action::Nav(View::Board(k)));
+                        // UI-12: the active sprint's board when one is running.
+                        let to = match app.session.ws.active_sprint(&k) {
+                            Some(sp) => View::SprintBoard(k, sp.id),
+                            None => View::Board(k),
+                        };
+                        app.push(Action::Nav(to));
+                    }
+                    // UI-11
+                    let on_backlog = pk.as_ref().is_some_and(|k| app.view == View::Backlog(k.clone()));
+                    if nav_item(ui, t, on_backlog, 10.0, "Backlog").clicked()
+                        && let Some(k) = pk.clone()
+                    {
+                        app.push(Action::Nav(View::Backlog(k)));
                     }
                     let q = format!("project = {key} ORDER BY created DESC");
                     if nav_item(ui, t, app.view == View::Issues && app.jql == q, 10.0, "Issues").clicked() {
